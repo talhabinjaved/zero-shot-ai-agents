@@ -1,0 +1,24 @@
+title,has_experiments,idea,experiments
+"Analyze Stock Market Trends",False,"Use historical data to predict future stock movements. Build a model that can analyze trends and make predictions.",""
+"Build a Recommendation Engine",False,"Create a simple movie recommendation system using collaborative filtering.",""
+"Test Neural Network Architectures",True,"Compare different neural network architectures for image classification","stop_on_fail: true
+steps:
+  - name: data_loading
+    description: Load and preprocess CIFAR-10 dataset
+    cmd: python scripts/load_data.py
+    sanity:
+      - type: file_exists
+        path: artifacts/data/train.pkl
+    retry: 2
+    timeout_minutes: 20
+  - name: train_baseline_cnn
+    description: Train baseline CNN model
+    cmd: python scripts/train_baseline.py --epochs 10
+    sanity:
+      - type: json_value
+        path: artifacts/baseline/metrics.json
+        key: accuracy
+        operator: '>'
+        value: 0.6
+    retry: 3
+    timeout_minutes: 120"

@@ -1,0 +1,440 @@
+name: Run Experiments
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'experiments/**'
+      - 'scripts/**'
+      - '.github/workflows/run-experiments.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'experiments/**'
+      - 'scripts/**'
+      - '.github/workflows/run-experiments.yml'
+  workflow_dispatch:
+    inputs:
+      step:
+        description: 'Experiment step id (from manifest)'
+        required: true
+        type: string
+      manifest_path:
+        description: 'Path to experiment manifest'
+        required: false
+        default: 'experiments/manifest.yaml'
+        type: string
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  # Job to validate experiment manifest
+  validate:
+    name: Validate Manifest
+    runs-on: ubuntu-latest
+    outputs:
+      steps: ${{ steps.extract.outputs.steps }}
+      manifest_valid: ${{ steps.validate.outputs.valid }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install validation dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyyaml jsonschema
+
+    - name: Validate experiment manifest
+      id: validate
+      run: |
+        MANIFEST_PATH="${{ github.event.inputs.manifest_path || 'experiments/manifest.yaml' }}"
+        python -c "
+        import yaml
+        import json
+        from pathlib import Path
+        import os
+
+        # Load and validate basic structure
+        manifest_path = Path(os.environ.get('MANIFEST_PATH', 'experiments/manifest.yaml'))
+        if not manifest_path.exists():
+            print('Manifest file not found')
+            exit(1)
+
+        with open(manifest_path) as f:
+            manifest = yaml.safe_load(f)
+
+        # Basic validation
+        if 'steps' not in manifest:
+            print('Missing steps in manifest')
+            exit(1)
+
+        steps = manifest['steps']
+        if not isinstance(steps, list) or len(steps) == 0:
+            print('Steps must be a non-empty list')
+            exit(1)
+
+        # Extract step IDs for potential matrix jobs
+        step_ids = [s['id'] for s in steps if isinstance(s, dict) and 'id' in s]
+        print(f'::set-output name=steps::{json.dumps(step_ids)}')
+        print(f'::set-output name=valid::true')
+        print(f'Manifest valid. Found {len(step_ids)} steps: {step_ids}')
+        "
+      env:
+        MANIFEST_PATH: ${{ github.event.inputs.manifest_path || 'experiments/manifest.yaml' }}
+
+  # Job to run a single experiment step (triggered by workflow_dispatch)
+  run_step:
+    name: Run Step ${{ github.event.inputs.step }}
+    runs-on: ubuntu-latest
+    needs: validate
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      needs.validate.outputs.manifest_valid == 'true'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          git \
+          curl \
+          libgomp1 \
+          libsndfile1-dev \
+          libjpeg-dev \
+          ffmpeg
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        fi
+        if [ -f experiments/requirements.txt ]; then
+          pip install -r experiments/requirements.txt
+        fi
+
+    - name: Setup experiment environment
+      run: |
+        # Create necessary directories
+        mkdir -p results/{logs,plots,data,models,reports}
+        mkdir -p .cache
+
+        # Set environment variables
+        echo "PYTHONPATH=${PWD}" >> $GITHUB_ENV
+        MANIFEST_PATH="${{ github.event.inputs.manifest_path || 'experiments/manifest.yaml' }}"
+        echo "EXPERIMENT_MANIFEST=$MANIFEST_PATH" >> $GITHUB_ENV
+
+    - name: Run experiment step
+      id: run
+      run: |
+        STEP="${{ github.event.inputs.step }}"
+        MANIFEST="${{ github.event.inputs.manifest_path || 'experiments/manifest.yaml' }}"
+
+        echo "Running step: $STEP"
+        echo "Manifest: $MANIFEST"
+
+        # Run the runner script - Jules monitors this
+        python scripts/run_experiment.py \
+          --step "$STEP" \
+          --manifest "$MANIFEST" \
+          --output results
+
+      # Don't continue on error - let Jules read state.json and iterate
+      continue-on-error: false
+
+    - name: Check step state
+      id: check
+      run: |
+        STATE_FILE="results/state.json"
+
+        if [ -f "$STATE_FILE" ]; then
+          cat "$STATE_FILE"
+
+          STATUS=$(python -c "
+          import json
+          with open('$STATE_FILE') as f:
+              data = json.load(f)
+          print(data.get('status', 'unknown'))
+          ")
+
+          VALIDATION=$(python -c "
+          import json
+          with open('$STATE_FILE') as f:
+              data = json.load(f)
+          print('true' if data.get('validation_passed', False) else 'false')
+          ")
+
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "validation_passed=$VALIDATION" >> $GITHUB_OUTPUT
+
+          echo "Step status: $STATUS"
+          echo "Validation passed: $VALIDATION"
+        else
+          echo "⚠️  No state file found for step"
+          echo "status=unknown" >> $GITHUB_OUTPUT
+          echo "validation_passed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Upload step results
+      uses: actions/upload-artifact@v4
+      with:
+        name: results-${{ github.event.inputs.step }}
+        path: |
+          results/
+          experiment_runner.log
+        retention-days: 30
+
+    - name: Comment on PR (if triggered by PR)
+      if: github.event_name == 'pull_request' && steps.check.outputs.validation_passed == 'false'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `❌ Experiment step **${{ github.event.inputs.step }}** failed validation.\n\nCheck \`results/state.json\` for details and suggestions.`
+          })
+
+  # Job to run complete experiment pipeline (for testing)
+  run_all_steps:
+    name: Run All Steps
+    runs-on: ubuntu-latest
+    needs: validate
+    if: |
+      github.event_name == 'push' &&
+      needs.validate.outputs.manifest_valid == 'true'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          git \
+          curl \
+          libgomp1 \
+          libsndfile1-dev \
+          libjpeg-dev \
+          ffmpeg
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        fi
+        if [ -f experiments/requirements.txt ]; then
+          pip install -r experiments/requirements.txt
+        fi
+
+    - name: Setup experiment environment
+      run: |
+        mkdir -p results/{logs,plots,data,models,reports}
+        mkdir -p .cache
+        echo "PYTHONPATH=${PWD}" >> $GITHUB_ENV
+
+    - name: Run all experiment steps sequentially
+      id: run_all
+      run: |
+        MANIFEST="experiments/manifest.yaml"
+
+        echo "Running all experiment steps from $MANIFEST"
+
+        # Extract step IDs from manifest
+        STEP_IDS=$(python -c "
+        import yaml
+        with open('$MANIFEST') as f:
+            manifest = yaml.safe_load(f)
+        step_ids = [step['id'] for step in manifest.get('steps', [])]
+        print(' '.join(step_ids))
+        ")
+
+        echo "Steps to run: $STEP_IDS"
+
+        # Run each step sequentially
+        for STEP_ID in $STEP_IDS; do
+          echo "Running step: $STEP_ID"
+
+          python scripts/run_experiment.py \
+            --step "$STEP_ID" \
+            --manifest "$MANIFEST" \
+            --output results
+
+          # Check if step succeeded
+          if [ $? -ne 0 ]; then
+            echo "Step $STEP_ID failed. Stopping pipeline."
+            exit 1
+          fi
+
+          echo "Step $STEP_ID completed successfully"
+        done
+
+        echo "All steps completed successfully"
+
+      # Let Jules handle failures
+      continue-on-error: false
+
+    - name: Upload complete results
+      uses: actions/upload-artifact@v4
+      with:
+        name: complete-experiment-results
+        path: |
+          results/
+          experiment_runner.log
+        retention-days: 30
+
+    - name: Generate experiment summary
+      if: steps.run_all.outcome == 'success'
+      run: |
+        python -c "
+        import json
+        import yaml
+        from pathlib import Path
+
+        manifest_path = Path('experiments/manifest.yaml')
+        if manifest_path.exists():
+            with open(manifest_path) as f:
+                manifest = yaml.safe_load(f)
+
+            summary = f'# Experiment Summary\\n\\n'
+            summary += f'Total steps: {len(manifest.get(\"steps\", []))}\\n\\n'
+
+            for step in manifest.get('steps', []):
+                step_id = step['id']
+                validation_file = Path(f'results/validation_{step_id}.json')
+
+                if validation_file.exists():
+                    with open(validation_file) as f:
+                        val_data = json.load(f)
+                    passed = val_data.get('all_passed', False)
+                    status = '✅' if passed else '❌'
+                else:
+                    status = '⚠️'
+
+                summary += f'{status} {step.get(\"name\", step_id)}\\n'
+
+            with open('results/experiment_summary.md', 'w') as f:
+                f.write(summary)
+
+            print('Experiment summary generated')
+        "
+
+  # Job for large-scale experiments (resource-intensive)
+  run_large_scale:
+    name: Run Large-Scale Experiment
+    runs-on: ubuntu-latest-16core  # GitHub Larger Runner
+    needs: validate
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      contains(github.event.inputs.step, 'large_scale') &&
+      needs.validate.outputs.manifest_valid == 'true'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          git \
+          curl \
+          libgomp1 \
+          libsndfile1-dev \
+          libjpeg-dev \
+          ffmpeg \
+          htop \
+          nvtop  # For GPU monitoring if available
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        fi
+        if [ -f experiments/requirements.txt ]; then
+          pip install -r experiments/requirements.txt
+        fi
+
+    - name: Setup large-scale environment
+      run: |
+        mkdir -p results/{logs,plots,data,models,reports,large_scale}
+        mkdir -p .cache
+        echo "PYTHONPATH=${PWD}" >> $GITHUB_ENV
+        echo "LARGE_SCALE=true" >> $GITHUB_ENV
+
+        # Log available resources
+        echo "CPU cores: $(nproc)"
+        echo "Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
+        if command -v nvidia-smi &> /dev/null; then
+          echo "GPU available:"
+          nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits
+        fi
+
+    - name: Run large-scale experiment step
+      run: |
+        STEP="${{ github.event.inputs.step }}"
+        MANIFEST="${{ github.event.inputs.manifest_path || 'experiments/manifest.yaml' }}"
+
+        echo "Running large-scale step: $STEP"
+
+        python scripts/run_experiment.py \
+          --step "$STEP" \
+          --manifest "$MANIFEST" \
+          --output results
+
+    - name: Upload large-scale results
+      uses: actions/upload-artifact@v4
+      with:
+        name: large-scale-${{ github.event.inputs.step }}-results
+        path: |
+          results/
+          experiment_runner.log
+        retention-days: 30

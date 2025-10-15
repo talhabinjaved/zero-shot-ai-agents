@@ -1,0 +1,369 @@
+name: Run Experiments
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'experiments.yaml'
+      - 'scripts/**'
+      - '.github/workflows/run-experiments.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'experiments.yaml'
+      - 'scripts/**'
+      - '.github/workflows/run-experiments.yml'
+  workflow_dispatch:
+    inputs:
+      step:
+        description: 'Specific experiment step to run (leave empty to run all)'
+        required: false
+        type: string
+      config_file:
+        description: 'Path to experiment config file'
+        required: false
+        default: 'experiments/experiments.yaml'
+        type: string
+      skip_sanity:
+        description: 'Skip sanity checks (for debugging)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # Job to validate experiment configuration
+  validate:
+    name: Validate Configuration
+    runs-on: ubuntu-latest
+    outputs:
+      steps: ${{ steps.extract.outputs.steps }}
+      config_valid: ${{ steps.validate.outputs.valid }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install validation dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyyaml jsonschema
+
+    - name: Validate experiments.yaml
+      id: validate
+      run: |
+        CONFIG_FILE="${{ github.event.inputs.config_file || 'experiments/experiments.yaml' }}"
+        python -c "
+        import yaml
+        import json
+        from pathlib import Path
+        import os
+
+        # Load and validate basic structure
+        config_path = Path(os.environ.get('CONFIG_FILE', 'experiments/experiments.yaml'))
+        if not config_path.exists():
+            print('Configuration file not found')
+            exit(1)
+
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        # Basic validation
+        if 'steps' not in config:
+            print('Missing steps in configuration')
+            exit(1)
+
+        steps = config['steps']
+        if not isinstance(steps, list) or len(steps) == 0:
+            print('Steps must be a non-empty list')
+            exit(1)
+
+        # Extract step names for matrix
+        step_names = [s['name'] for s in steps if isinstance(s, dict) and 'name' in s]
+        print(f'::set-output name=steps::{json.dumps(step_names)}')
+        print(f'::set-output name=valid::true')
+        print(f'Configuration valid. Found {len(step_names)} steps: {step_names}')
+        "
+
+  # Job to run individual experiment steps (OpenHands monitors these)
+  run_step:
+    name: Run Step ${{ matrix.step }}
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.config_valid == 'true'
+    strategy:
+      matrix:
+        step: ${{ fromJson(needs.validate.outputs.steps) }}
+      fail-fast: false  # Allow OpenHands to iterate on individual step failures
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          git \
+          curl \
+          libgomp1 \
+          libsndfile1-dev \
+          libjpeg-dev \
+          ffmpeg
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        fi
+        if [ -f experiments/requirements.txt ]; then
+          pip install -r experiments/requirements.txt
+        fi
+
+    - name: Setup experiment environment
+      run: |
+        # Create necessary directories
+        mkdir -p artifacts/{logs,plots,data,models,reports}
+        mkdir -p .cache
+
+        # Set environment variables
+        echo "PYTHONPATH=${PWD}" >> $GITHUB_ENV
+        echo "EXPERIMENT_CONFIG=${{ github.event.inputs.config_file || 'experiments/experiments.yaml' }}" >> $GITHUB_ENV
+
+    - name: Run experiment step
+      id: run
+      run: |
+        STEP="${{ matrix.step }}"
+        CONFIG="${{ github.event.inputs.config_file || 'experiments/experiments.yaml' }}"
+        SKIP_SANITY="${{ github.event.inputs.skip_sanity || 'false' }}"
+
+        echo "Running step: $STEP"
+        echo "Config file: $CONFIG"
+        echo "Skip sanity: $SKIP_SANITY"
+
+        # Run the runner script - OpenHands monitors this step
+        python runner.py \
+          --spec "$CONFIG" \
+          --step "$STEP" \
+          --output artifacts
+
+      # Don't continue on error - let OpenHands handle iteration
+      continue-on-error: false
+
+    - name: Upload step artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: step-${{ matrix.step }}-artifacts
+        path: |
+          artifacts/
+          runner.log
+        retention-days: 30
+
+  # Job to run complete experiment pipeline (alternative to matrix)
+  run_pipeline:
+    name: Run Complete Pipeline
+    runs-on: ubuntu-latest
+    needs: validate
+    if: |
+      needs.validate.outputs.config_valid == 'true' &&
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.step == '')
+    # Only run when manually triggered without specifying a step
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          git \
+          curl \
+          libgomp1 \
+          libsndfile1-dev \
+          libjpeg-dev \
+          ffmpeg
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        fi
+        if [ -f experiments/requirements.txt ]; then
+          pip install -r experiments/requirements.txt
+        fi
+
+    - name: Setup experiment environment
+      run: |
+        mkdir -p artifacts/{logs,plots,data,models,reports}
+        mkdir -p .cache
+        echo "PYTHONPATH=${PWD}" >> $GITHUB_ENV
+
+    - name: Run complete experiment pipeline
+      id: run
+      run: |
+        CONFIG="${{ github.event.inputs.config_file || 'experiments/experiments.yaml' }}"
+
+        echo "Running complete experiment pipeline"
+        echo "Config file: $CONFIG"
+
+        python runner.py \
+          --spec "$CONFIG" \
+          --output artifacts
+
+      # Let OpenHands handle failures and iterations
+      continue-on-error: false
+
+    - name: Upload complete pipeline artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: complete-pipeline-artifacts
+        path: |
+          artifacts/
+          runner.log
+        retention-days: 30
+
+    - name: Generate experiment summary
+      if: steps.run.outcome == 'success'
+      run: |
+        python -c "
+        import json
+        from pathlib import Path
+
+        results_file = Path('artifacts/experiment_results.json')
+        if results_file.exists():
+            with open(results_file) as f:
+                data = json.load(f)
+
+            summary = f'# Experiment Summary\\n\\n'
+            summary += f'Total steps: {len(data.get(\"steps\", {}))}\\n'
+            summary += f'Completed at: {data.get(\"completed_at\", \"unknown\")}\\n'
+            summary += f'Overall success: {data.get(\"all_success\", False)}\\n\\n'
+
+            for step_name, step_data in data.get('steps', {}).items():
+                success = step_data.get('success', False) and step_data.get('sanity_passed', False)
+                status = '✅' if success else '❌'
+                summary += f'{status} {step_name}\\n'
+
+            with open('artifacts/experiment_summary.md', 'w') as f:
+                f.write(summary)
+
+            print('Experiment summary generated')
+        "
+
+  # Job for large-scale experiments (GPU/memory intensive)
+  run_large_scale:
+    name: Run Large-Scale Experiment
+    runs-on: ubuntu-latest-16core  # GitHub Larger Runner
+    needs: validate
+    if: |
+      needs.validate.outputs.config_valid == 'true' &&
+      github.event_name == 'workflow_dispatch' &&
+      contains(github.event.inputs.step, 'large_scale')
+    # Only run for manually triggered large-scale experiments
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          git \
+          curl \
+          libgomp1 \
+          libsndfile1-dev \
+          libjpeg-dev \
+          ffmpeg \
+          htop \
+          nvtop  # For GPU monitoring if available
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        fi
+        if [ -f experiments/requirements.txt ]; then
+          pip install -r experiments/requirements.txt
+        fi
+
+    - name: Setup large-scale environment
+      run: |
+        mkdir -p artifacts/{logs,plots,data,models,reports,large_scale}
+        mkdir -p .cache
+        echo "PYTHONPATH=${PWD}" >> $GITHUB_ENV
+        echo "LARGE_SCALE=true" >> $GITHUB_ENV
+
+        # Log available resources
+        echo "CPU cores: $(nproc)"
+        echo "Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
+        if command -v nvidia-smi &> /dev/null; then
+          echo "GPU available:"
+          nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits
+        fi
+
+    - name: Run large-scale experiment step
+      run: |
+        STEP="${{ github.event.inputs.step }}"
+        CONFIG="${{ github.event.inputs.config_file || 'experiments/experiments.yaml' }}"
+
+        echo "Running large-scale step: $STEP"
+
+        python runner.py \
+          --spec "$CONFIG" \
+          --step "$STEP" \
+          --output artifacts
+
+    - name: Upload large-scale artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: large-scale-${{ github.event.inputs.step }}-artifacts
+        path: |
+          artifacts/
+          runner.log
+        retention-days: 30

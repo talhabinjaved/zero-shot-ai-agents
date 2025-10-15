@@ -1,0 +1,129 @@
+# Experiment Manifest Template for Jules
+# This file will be customized by the Jules agent based on the specific idea
+# Jules reads AGENTS.md for guidance on how to execute and validate experiments
+# The agent will refine this template into a concrete experiment plan
+
+# Manifest metadata
+title: "Experiment Plan"
+description: "Systematic experimental validation of the idea"
+
+# Global configuration
+config:
+  random_seed: 42
+  log_level: INFO
+  output_dir: results
+  cache_dir: .cache
+
+# Ordered list of experiment steps
+# Jules will implement code for each step and monitor CI execution
+steps:
+  - id: environment_setup
+    name: "Environment Setup"
+    description: "Set up the computational environment and verify dependencies"
+    sanity: "python_version >= 3.8"
+    inputs: []
+    outputs:
+      - results/env_check.json
+    resources:
+      cpu: 2
+      memory_gb: 4
+      expected_duration_minutes: 10
+
+  - id: data_preparation
+    name: "Data Preparation"
+    description: "Prepare and validate input data for experiments"
+    sanity: "no missing values > 1%"
+    inputs:
+      - experiments/config.yaml
+    outputs:
+      - results/data/train.csv
+      - results/data/validation.csv
+      - results/data/stats.json
+    resources:
+      cpu: 4
+      memory_gb: 8
+      expected_duration_minutes: 30
+
+  - id: baseline_experiment
+    name: "Baseline Experiment"
+    description: "Run baseline experiment for comparison"
+    sanity: "validation_score > 0.1"
+    inputs:
+      - results/data/train.csv
+      - results/data/validation.csv
+    outputs:
+      - results/baseline/model.pkl
+      - results/baseline/metrics.json
+    resources:
+      cpu: 4
+      memory_gb: 16
+      expected_duration_minutes: 60
+
+  - id: main_experiment
+    name: "Main Experiment"
+    description: "Run the primary experimental implementation"
+    sanity: "test_score > 0.5"
+    inputs:
+      - results/data/train.csv
+      - results/data/validation.csv
+      - results/baseline/model.pkl
+    outputs:
+      - results/experiment/model.pkl
+      - results/experiment/metrics.json
+      - results/experiment/plots/performance.png
+    resources:
+      cpu: 8
+      memory_gb: 32
+      expected_duration_minutes: 120
+
+  - id: analysis
+    name: "Analysis and Reporting"
+    description: "Analyze results and generate comprehensive reports"
+    sanity: "no metric regressions"
+    inputs:
+      - results/experiment/metrics.json
+      - results/baseline/metrics.json
+    outputs:
+      - results/analysis/report.md
+      - results/analysis/comparison.json
+      - results/analysis/plots/summary.png
+    resources:
+      cpu: 4
+      memory_gb: 16
+      expected_duration_minutes: 30
+
+# Validation rules for Jules to check after each step
+validation:
+  - step: data_preparation
+    checks:
+      - type: file_exists
+        path: results/data/stats.json
+      - type: metric
+        path: results/data/stats.json
+        key: num_samples
+        condition: "> 100"
+
+  - step: baseline_experiment
+    checks:
+      - type: file_exists
+        path: results/baseline/metrics.json
+      - type: metric
+        path: results/baseline/metrics.json
+        key: validation_score
+        condition: "> 0.1"
+
+  - step: main_experiment
+    checks:
+      - type: file_exists
+        path: results/experiment/metrics.json
+      - type: metric
+        path: results/experiment/metrics.json
+        key: test_score
+        condition: "> 0.5"
+
+  - step: analysis
+    checks:
+      - type: file_exists
+        path: results/analysis/report.md
+      - type: file_exists
+        path: results/analysis/comparison.json

@@ -1,0 +1,7 @@
+pandas
+requests
+pyyaml
+python-slugify
+jinja2
+python-dotenv
+openpyxl
