@@ -704,13 +704,13 @@ results/
 
         return session_id
 
-    def monitor_session(self, session_id: str, timeout_minutes: int = 120) -> Dict[str, Any]:
+    def monitor_session(self, session_id: str, timeout_minutes: int = 300) -> Dict[str, Any]:
         """
         Monitor a Jules session until completion or timeout.
 
         Args:
             session_id: Jules session ID
-            timeout_minutes: Maximum time to wait
+            timeout_minutes: Maximum time to wait (default: 300 minutes = 5 hours)
 
         Returns:
             Final session status

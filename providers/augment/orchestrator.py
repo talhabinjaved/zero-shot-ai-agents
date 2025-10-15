@@ -20,6 +20,7 @@ import base64
 import csv
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -215,7 +216,7 @@ class AugmentClient:
                 cwd=cwd,
                 capture_output=True,
                 text=True,
-                timeout=1200,  # 20 minute timeout for individual commands (planning can be slow)
+                timeout=18000,  # 5 hour timeout for individual commands (planning can be slow)
                 env=env
             )
 
@@ -226,7 +227,7 @@ class AugmentClient:
 
         except subprocess.TimeoutExpired:
             logger.error("Auggie command timed out")
-            return -1, "Command timed out after 20 minutes"
+            return -1, "Command timed out after 5 hours"
 
         except FileNotFoundError:
             logger.error("Auggie CLI not found. Please install with: npm install -g @augmentcode/auggie")
@@ -353,25 +354,103 @@ class ExperimentOrchestrator:
         
         return actual_branch
 
-    def seed_repository(self, repo_full_name: str, idea: ExperimentIdea):
-        """Seed the repository with experiment templates and configuration."""
+    def clone_repository(self, repo_full_name: str, local_path: Path, branch: str = 'main') -> bool:
+        """Clone a GitHub repository to local path.
+        
+        Args:
+            repo_full_name: Full repository name (owner/repo)
+            local_path: Local path to clone to
+            branch: Branch to clone
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Use token in clone URL for authentication
+            clone_url = f"https://{self.config.token}@github.com/{repo_full_name}.git"
+            
+            cmd = ['git', 'clone', '-b', branch, clone_url, str(local_path)]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            if result.returncode == 0:
+                logger.info(f"Cloned repository {repo_full_name} to {local_path}")
+                return True
+            else:
+                logger.error(f"Failed to clone repository: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error cloning repository: {e}")
+            return False
+
+    def commit_and_push(self, local_path: Path, message: str) -> bool:
+        """Commit all changes and push to remote.
+        
+        Args:
+            local_path: Local repository path
+            message: Commit message
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Configure git user
+            subprocess.run(['git', 'config', 'user.name', 'Augment Orchestrator'], 
+                         cwd=local_path, check=True)
+            subprocess.run(['git', 'config', 'user.email', 'orchestrator@augment.dev'], 
+                         cwd=local_path, check=True)
+            
+            # Add all files
+            subprocess.run(['git', 'add', '.'], cwd=local_path, check=True)
+            
+            # Check if there are changes to commit
+            status_result = subprocess.run(['git', 'status', '--porcelain'], 
+                                         cwd=local_path, capture_output=True, text=True)
+            
+            if not status_result.stdout.strip():
+                logger.info("No changes to commit")
+                return True
+            
+            # Commit changes
+            subprocess.run(['git', 'commit', '-m', message], cwd=local_path, check=True)
+            
+            # Push to remote
+            subprocess.run(['git', 'push'], cwd=local_path, check=True)
+            
+            logger.info(f"Committed and pushed changes: {message}")
+            return True
+            
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error committing/pushing changes: {e}")
+            return False
+
+    def seed_repository(self, repo_full_name: str, idea: ExperimentIdea, local_path: Path):
+        """Seed the repository with experiment templates and configuration.
+        
+        Args:
+            repo_full_name: Full repository name (owner/repo)
+            idea: Experiment idea
+            local_path: Local path where repo is cloned
+        """
         logger.info(f"Seeding repository: {repo_full_name}")
 
-        # Create temporary directory for file operations
-        with tempfile.TemporaryDirectory() as temp_dir:
-            repo_dir = Path(temp_dir) / 'repo'
+        # Copy template files to local repository
+        self._copy_template_files_local(local_path, idea)
 
-            # Copy template files to the repository
-            self._copy_template_files(repo_full_name, idea)
+        # Customize experiment configuration
+        self._customize_experiments_local(local_path, idea)
 
-            # Customize experiment configuration
-            self._customize_experiments(repo_full_name, idea)
+        logger.info(f"Repository {repo_full_name} seeded successfully")
 
-            logger.info(f"Repository {repo_full_name} seeded successfully")
-
-    def _copy_template_files(self, repo_full_name: str, idea: ExperimentIdea):
-        """Copy template files to the repository."""
+    def _copy_template_files_local(self, local_path: Path, idea: ExperimentIdea):
+        """Copy template files to local repository clone."""
         template_dir = Path(__file__).parent / 'templates'
+        repo_name = local_path.name
 
         # Files to copy from templates
         template_files = {
@@ -388,18 +467,17 @@ class ExperimentOrchestrator:
                     content = f.read()
 
                 # Basic templating - replace placeholders
-                content = content.replace('{{REPO_NAME}}', repo_full_name.split('/')[1])
+                content = content.replace('{{REPO_NAME}}', repo_name)
                 content = content.replace('{{IDEA_TITLE}}', idea.title)
                 content = content.replace('{{IDEA_DESCRIPTION}}', idea.idea or '')
 
-                self.github.put_file(
-                    repo_full_name,
-                    repo_path,
-                    content,
-                    f'add {repo_path}'
-                )
+                # Write to local file
+                dest_path = local_path / repo_path
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(dest_path, 'w') as f:
+                    f.write(content)
 
-            # Add additional scaffold files
+        # Add additional scaffold files
         scaffold_files = {
             'requirements.txt': self._generate_requirements(idea),
             'experiments/idea.json': json.dumps({
@@ -415,23 +493,18 @@ class ExperimentOrchestrator:
         }
 
         for file_path, content in scaffold_files.items():
-            self.github.put_file(
-                repo_full_name,
-                file_path,
-                content,
-                f'add {file_path}'
-            )
+            dest_path = local_path / file_path
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(dest_path, 'w') as f:
+                f.write(content)
 
-    def _customize_experiments(self, repo_full_name: str, idea: ExperimentIdea):
-        """Customize the experiments.yaml based on the idea."""
+    def _customize_experiments_local(self, local_path: Path, idea: ExperimentIdea):
+        """Customize the experiments.yaml based on the idea in local clone."""
         if idea.has_experiments and idea.experiments:
             # Use the provided experiments configuration
-            self.github.put_file(
-                repo_full_name,
-                'experiments.yaml',
-                idea.experiments,
-                'add pre-defined experiments configuration'
-            )
+            experiments_path = local_path / 'experiments.yaml'
+            with open(experiments_path, 'w') as f:
+                f.write(idea.experiments)
 
     def _generate_requirements(self, idea: ExperimentIdea) -> str:
         """Generate requirements.txt content."""
@@ -536,15 +609,23 @@ artifacts/
 *.log
 '''
 
-    def plan_experiment(self, repo_full_name: str, idea: ExperimentIdea) -> bool:
-        """Use Augment to plan the experiment."""
+    def plan_experiment(self, repo_full_name: str, idea: ExperimentIdea, local_path: Path) -> bool:
+        """Use Augment to plan the experiment.
+        
+        Args:
+            repo_full_name: Full repository name (owner/repo)
+            idea: Experiment idea
+            local_path: Local path where repo is cloned
+            
+        Returns:
+            True if successful, False otherwise
+        """
         logger.info(f"Planning experiment for {repo_full_name}")
 
         if idea.has_experiments:
             # Idea has pre-defined experiments - ask Augment to validate and enhance
             instruction = f"""
-            For the repository {repo_full_name} containing the idea "{idea.title}",
-            please review the pre-defined experiments in experiments.yaml and AGENTS.md files.
+            Review the pre-defined experiments in experiments.yaml and AGENTS.md files.
 
             This idea comes with PRE-DEFINED EXPERIMENTS. Your task:
             1. Review and validate the provided experiment plan
@@ -552,15 +633,14 @@ artifacts/
             3. Implement any missing scripts or helper functions needed
             4. Add any necessary configuration files
             5. Enhance the plan if you spot opportunities for improvement
-            6. Open a PR with your validation and implementation changes
+            6. Commit and push your changes
 
             Focus on executing the provided plan faithfully while ensuring it's production-ready.
             """
         else:
             # AI needs to create the experiment plan from scratch
             instruction = f"""
-            For the repository {repo_full_name} containing the idea "{idea.title}",
-            please review the AGENTS.md file and the idea description in experiments/idea.json.
+            Review the AGENTS.md file and the idea description in experiments/idea.json.
 
             This idea REQUIRES YOU TO PLAN THE EXPERIMENTS. Your task:
             1. Analyze the experiment idea thoroughly
@@ -569,16 +649,17 @@ artifacts/
             4. Ensure each step has clear resource requirements and validation criteria
             5. Add baseline/control experiments for comparison
             6. Implement necessary scripts and configuration files
-            7. Open a PR with your complete planning and implementation
+            7. Commit and push your complete planning and implementation
 
             Focus on creating a rigorous, reproducible experiment that validates the core hypothesis.
             Generate the full experiment plan from scratch based on the idea.
             """
 
-        exit_code, output = self.augment.run_command(instruction)
+        exit_code, output = self.augment.run_command(instruction, cwd=local_path)
 
         if exit_code == 0:
             logger.info(f"Experiment planning completed for {repo_full_name}")
+            logger.info(f"Augment output: {output[:500]}...")  # Log first 500 chars
             return True
         else:
             logger.error(f"Experiment planning failed for {repo_full_name}: {output}")
@@ -635,12 +716,20 @@ artifacts/
             'message': f'Monitoring timed out after {timeout_minutes} minutes'
         }
 
-    def generate_final_readme(self, repo_full_name: str) -> bool:
-        """Use Augment to generate a final polished README."""
+    def generate_final_readme(self, repo_full_name: str, local_path: Path) -> bool:
+        """Use Augment to generate a final polished README.
+        
+        Args:
+            repo_full_name: Full repository name (owner/repo)
+            local_path: Local path where repo is cloned
+            
+        Returns:
+            True if successful, False otherwise
+        """
         logger.info(f"Generating final README for {repo_full_name}")
 
         instruction = f"""
-        For repository {repo_full_name}, review the completed experiments and results.
+        Review the completed experiments and results.
 
         Your task:
         1. Analyze all artifacts in the artifacts/ directory
@@ -652,12 +741,12 @@ artifacts/
            - Error bars and confidence intervals where applicable
            - Limitations and assumptions
            - Concrete next steps for improvement
-        4. Open a PR with the final README
+        4. Commit and push the final README
 
         Make it suitable for sharing with stakeholders and investors.
         """
 
-        exit_code, output = self.augment.run_command(instruction)
+        exit_code, output = self.augment.run_command(instruction, cwd=local_path)
 
         if exit_code == 0:
             logger.info(f"Final README generated for {repo_full_name}")
@@ -670,16 +759,35 @@ artifacts/
         """Process a single experiment idea from start to finish."""
         logger.info(f"Processing idea: {idea.title}")
 
+        local_clone_path = None
         try:
             # 1. Create repository
             repo_full_name, default_branch = self.create_experiment_repo(idea)
             logger.info(f"Repository default branch: {default_branch}")
 
-            # 2. Seed with templates
-            self.seed_repository(repo_full_name, idea)
+            # 2. Clone repository locally
+            local_clone_path = self.config.base_dir / slugify(idea.title, max_length=80)
+            local_clone_path.mkdir(parents=True, exist_ok=True)
+            
+            clone_success = self.clone_repository(repo_full_name, local_clone_path, default_branch)
+            if not clone_success:
+                return {
+                    'idea': idea.title,
+                    'repo': repo_full_name,
+                    'status': 'clone_failed',
+                    'error': 'Failed to clone repository'
+                }
 
-            # 3. Plan experiment with Augment
-            planning_success = self.plan_experiment(repo_full_name, idea)
+            # 3. Seed with templates (locally)
+            self.seed_repository(repo_full_name, idea, local_clone_path)
+
+            # 4. Commit and push templates
+            commit_success = self.commit_and_push(local_clone_path, 'chore: seed repository with experiment templates')
+            if not commit_success:
+                logger.warning("Failed to push initial templates, continuing anyway...")
+
+            # 5. Plan experiment with Augment (runs in local directory)
+            planning_success = self.plan_experiment(repo_full_name, idea, local_clone_path)
             if not planning_success:
                 return {
                     'idea': idea.title,
@@ -688,7 +796,10 @@ artifacts/
                     'error': 'Experiment planning failed'
                 }
 
-            # 4. Execute experiment
+            # Note: Augment should have committed and pushed its changes
+            # So we don't need to explicitly push here
+
+            # 6. Execute experiment
             execution_success = self.execute_experiment(repo_full_name)
             if not execution_success:
                 return {
@@ -698,7 +809,7 @@ artifacts/
                     'error': 'Failed to trigger workflow'
                 }
 
-            # 5. Monitor execution
+            # 7. Monitor execution
             execution_result = self.monitor_experiment(repo_full_name)
 
             if execution_result['status'] == 'timeout':
@@ -711,7 +822,7 @@ artifacts/
 
             if execution_result.get('conclusion') != 'success':
                 # Attempt to fix issues with Augment
-                self._handle_execution_failure(repo_full_name, execution_result)
+                self._handle_execution_failure(repo_full_name, execution_result, local_clone_path)
                 return {
                     'idea': idea.title,
                     'repo': repo_full_name,
@@ -719,8 +830,8 @@ artifacts/
                     'workflow_url': execution_result.get('html_url')
                 }
 
-            # 6. Generate final README
-            readme_success = self.generate_final_readme(repo_full_name)
+            # 8. Generate final README
+            readme_success = self.generate_final_readme(repo_full_name, local_clone_path)
 
             return {
                 'idea': idea.title,
@@ -737,25 +848,39 @@ artifacts/
                 'status': 'error',
                 'error': str(e)
             }
+        finally:
+            # Clean up local clone
+            if local_clone_path and local_clone_path.exists():
+                try:
+                    shutil.rmtree(local_clone_path)
+                    logger.info(f"Cleaned up local clone at {local_clone_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up local clone: {e}")
 
-    def _handle_execution_failure(self, repo_full_name: str, execution_result: Dict[str, Any]):
-        """Handle execution failures by asking Augment to diagnose and fix."""
+    def _handle_execution_failure(self, repo_full_name: str, execution_result: Dict[str, Any], local_path: Path):
+        """Handle execution failures by asking Augment to diagnose and fix.
+        
+        Args:
+            repo_full_name: Full repository name (owner/repo)
+            execution_result: Result from workflow execution
+            local_path: Local path where repo is cloned
+        """
         logger.info(f"Handling execution failure for {repo_full_name}")
 
         instruction = f"""
-        Repository {repo_full_name} had a failed workflow run: {execution_result.get('html_url')}
+        The workflow run failed: {execution_result.get('html_url')}
 
         Your task:
         1. Review the workflow logs and artifacts
         2. Identify the root cause of the failure
         3. Fix any code, configuration, or dependency issues
         4. Adjust experiment parameters if needed
-        5. Open a PR with the fixes
+        5. Commit and push the fixes
 
         Focus on getting the experiments to run successfully.
         """
 
-        self.augment.run_command(instruction)
+        self.augment.run_command(instruction, cwd=local_path)
 
     def run_batch(self, ideas: List[ExperimentIdea]) -> List[Dict[str, Any]]:
         """Process multiple ideas with concurrency control."""
@@ -808,7 +933,7 @@ def main():
     )
     parser.add_argument(
         '--output-dir',
-        default='./repos',
+        default='/Users/talhadev/Projects/temps/augment/repos',
         help='Directory to store local repository clones'
     )
     parser.add_argument(

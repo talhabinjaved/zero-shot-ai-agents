@@ -230,13 +230,13 @@ class OpenHandsClient:
         response.raise_for_status()
         return response.json()
 
-    def poll_conversation(self, conversation_id: str, timeout_minutes: int = 60) -> Dict[str, Any]:
+    def poll_conversation(self, conversation_id: str, timeout_minutes: int = 300) -> Dict[str, Any]:
         """
         Poll a conversation until it completes or times out.
 
         Args:
             conversation_id: OpenHands conversation ID
-            timeout_minutes: Maximum time to wait
+            timeout_minutes: Maximum time to wait (default: 300 minutes = 5 hours)
 
         Returns:
             Final conversation status
@@ -629,8 +629,8 @@ artifacts/
         conversation_id = self.openhands.start_conversation(repo_full_name, initial_prompt)
         return conversation_id
 
-    def monitor_conversation(self, conversation_id: str, timeout_minutes: int = 120) -> Dict[str, Any]:
-        """Monitor an OpenHands conversation until completion."""
+    def monitor_conversation(self, conversation_id: str, timeout_minutes: int = 300) -> Dict[str, Any]:
+        """Monitor an OpenHands conversation until completion (default: 300 minutes = 5 hours)."""
         logger.info(f"Monitoring OpenHands conversation: {conversation_id}")
 
         final_status = self.openhands.poll_conversation(conversation_id, timeout_minutes)
@@ -711,8 +711,8 @@ def main():
     parser.add_argument(
         '--monitor-timeout',
         type=int,
-        default=120,
-        help='Timeout in minutes for monitoring conversations'
+        default=300,
+        help='Timeout in minutes for monitoring conversations (default: 300 = 5 hours)'
     )
 
     args = parser.parse_args()
