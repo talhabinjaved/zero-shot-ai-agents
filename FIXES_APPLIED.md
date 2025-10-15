@@ -470,9 +470,101 @@ def process_idea(self, idea: ExperimentIdea) -> Dict[str, Any]:
 - ✅ More efficient - Augment works locally, pushes once when done
 
 **Additional Changes:**
-- Increased Augment timeout from 5 minutes to 20 minutes (300s → 1200s)
+- Increased Augment timeout from 5 minutes to 5 hours (300s → 18,000s)
 - Added `shutil` import for cleanup
 - All Augment-related methods now use `local_path` parameter
+
+---
+
+### Fix 7: Auto-Save Augment's Work (Augment Only - October 15, 2025)
+
+**Problem:** Augment CLI created files successfully but didn't auto-commit them. When Augment crashed or timed out, the orchestrator cleaned up the local clone, **deleting all of Augment's work**.
+
+**Error Evidence:**
+```
+2025-10-15 22:09:13 - Auggie command completed with exit code 1
+❌ Agent execution failed: e.split is not a function
+# Augment created 20+ files, but none were committed
+2025-10-15 22:09:13 - Cleaned up local clone
+# All files deleted!
+```
+
+**What Was Lost:** Test runs showed Augment successfully created 20+ files locally, but **zero files committed** to GitHub (only initial templates existed).
+
+**Root Cause:** Augment CLI doesn't auto-commit (unlike Jules/OpenHands), and orchestrator didn't commit after Augment finished.
+
+**Fix Applied (Lines 792-814, 861-867):**
+
+```python
+# Always commit Augment's work (even if it failed partially)
+logger.info("Saving Augment's work to GitHub...")
+commit_msg = (
+    'feat: experiment planning and scripts (via Augment)' 
+    if planning_success 
+    else 'chore: save partial experiment planning (Augment incomplete)'
+)
+commit_result = self.commit_and_push(local_clone_path, commit_msg)
+
+# Also save work on exceptions:
+except Exception as e:
+    self.commit_and_push(local_clone_path, f'chore: save work before error')
+```
+
+**Impact:**
+- ✅ Augment's work saved even on crashes/timeouts/exceptions
+- ✅ Partial progress committed to GitHub
+- ✅ No more lost work from cleanup
+
+---
+
+### Fix 8: Remove Misleading Commit Instructions (Augment Only - October 15, 2025)
+
+**Problem:** Orchestrator was telling Augment CLI to "commit and push your changes" but Augment CLI doesn't have git capabilities.
+
+**Fix Applied (Lines 640, 659, 753, 912):**
+
+Added clear NOTE to all Augment instructions:
+```python
+NOTE: Do not attempt to commit or push - the orchestrator handles that automatically.
+```
+
+**Updated Methods:**
+- `plan_experiment()` - Both pre-defined and AI planning instruction paths
+- `generate_final_readme()` - Final documentation generation
+- `_handle_execution_failure()` - Error fixing workflow
+
+**Impact:**
+- ✅ No more confusing instructions
+- ✅ Augment doesn't waste time on impossible tasks
+- ✅ Clear division of responsibilities (Augment: create files, Orchestrator: commit)
+
+---
+
+### Fix 9: Comprehensive Auto-Commit Strategy (Augment Only - October 15, 2025)
+
+**Problem:** Only committed after planning, but not after README generation or failure fixes.
+
+**Fix Applied:**
+
+Added commit points throughout the workflow:
+
+1. **Line 849-850:** After execution failure fixes
+```python
+logger.info("Committing fixes from execution failure handler...")
+self.commit_and_push(local_clone_path, 'fix: attempt to resolve execution failures (via Augment)')
+```
+
+2. **Line 859-860:** After final README generation  
+```python
+logger.info("Committing final README and documentation...")
+self.commit_and_push(local_clone_path, 'docs: add final README and results documentation')
+```
+
+**Impact:**
+- ✅ Work saved at **every stage** of the workflow
+- ✅ Multiple commits show clear progression
+- ✅ Easy to identify which stage failed if issues occur
+- ✅ Complete audit trail of Augment's work
 
 ---
 
@@ -633,12 +725,17 @@ def _initialize_repo(self, repo_full_name: str, expected_branch: str = 'main') -
 **Augment additionally has:**
 - ✅✅ Complete local cloning workflow (major refactor)
 - ✅ Proper working directory for Augment CLI
-- ✅ Git commit/push automation
+- ✅ Git commit/push automation at every workflow stage
 - ✅ Automatic cleanup of temporary clones
-- ✅ Increased timeout (5min → 20min)
+- ✅ Increased timeout (5min → 5 hours)
+- ✅ **Auto-save Augment's work** (even on failure/timeout)
+- ✅ **Exception handler** to save uncommitted work
+- ✅ **Fixed misleading instructions** (removed impossible commit requests)
+- ✅ **Comprehensive commit strategy** (planning, fixes, README, exceptions)
 
 **Total changes:**
 - **All providers:** ~6 methods modified, ~150 lines per orchestrator
 - **Jules:** +2 additional enhancements
-- **Augment:** +6 new methods, ~300 additional lines (workflow refactor)
+- **Augment:** +6 new methods, ~350 additional lines (major workflow refactor + resilience improvements)
+- **Augment fixes:** 9 total fixes applied (6 refactor + 3 resilience)
 

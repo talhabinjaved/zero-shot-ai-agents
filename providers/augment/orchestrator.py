@@ -633,9 +633,11 @@ artifacts/
             3. Implement any missing scripts or helper functions needed
             4. Add any necessary configuration files
             5. Enhance the plan if you spot opportunities for improvement
-            6. Commit and push your changes
+            6. Create all implementation files and documentation
 
             Focus on executing the provided plan faithfully while ensuring it's production-ready.
+            
+            NOTE: Do not attempt to commit or push changes - the orchestrator will handle that automatically.
             """
         else:
             # AI needs to create the experiment plan from scratch
@@ -649,10 +651,12 @@ artifacts/
             4. Ensure each step has clear resource requirements and validation criteria
             5. Add baseline/control experiments for comparison
             6. Implement necessary scripts and configuration files
-            7. Commit and push your complete planning and implementation
+            7. Generate comprehensive documentation and README content
 
             Focus on creating a rigorous, reproducible experiment that validates the core hypothesis.
             Generate the full experiment plan from scratch based on the idea.
+            
+            NOTE: Do not attempt to commit or push changes - the orchestrator will handle that automatically.
             """
 
         exit_code, output = self.augment.run_command(instruction, cwd=local_path)
@@ -741,9 +745,12 @@ artifacts/
            - Error bars and confidence intervals where applicable
            - Limitations and assumptions
            - Concrete next steps for improvement
-        4. Commit and push the final README
+        4. Create RESULTS.md with detailed findings
+        5. Update any necessary documentation
 
         Make it suitable for sharing with stakeholders and investors.
+        
+        NOTE: Do not attempt to commit or push - the orchestrator handles that automatically.
         """
 
         exit_code, output = self.augment.run_command(instruction, cwd=local_path)
@@ -788,16 +795,30 @@ artifacts/
 
             # 5. Plan experiment with Augment (runs in local directory)
             planning_success = self.plan_experiment(repo_full_name, idea, local_clone_path)
+            
+            # 5.5 ALWAYS commit Augment's work (even if it failed partially)
+            # Augment CLI doesn't auto-commit, so we must save its work manually
+            logger.info("Saving Augment's work to GitHub...")
+            commit_msg = (
+                'feat: experiment planning and scripts (via Augment)' 
+                if planning_success 
+                else 'chore: save partial experiment planning (Augment incomplete)'
+            )
+            
+            commit_result = self.commit_and_push(local_clone_path, commit_msg)
+            if commit_result:
+                logger.info("Successfully pushed Augment's changes to GitHub")
+            else:
+                logger.warning("Failed to push Augment's changes, but continuing...")
+            
+            # Now check if planning was successful
             if not planning_success:
                 return {
                     'idea': idea.title,
                     'repo': repo_full_name,
                     'status': 'planning_failed',
-                    'error': 'Experiment planning failed'
+                    'error': 'Experiment planning failed (partial work saved to GitHub)'
                 }
-
-            # Note: Augment should have committed and pushed its changes
-            # So we don't need to explicitly push here
 
             # 6. Execute experiment
             execution_success = self.execute_experiment(repo_full_name)
@@ -823,6 +844,11 @@ artifacts/
             if execution_result.get('conclusion') != 'success':
                 # Attempt to fix issues with Augment
                 self._handle_execution_failure(repo_full_name, execution_result, local_clone_path)
+                
+                # Commit any fixes Augment made
+                logger.info("Committing fixes from execution failure handler...")
+                self.commit_and_push(local_clone_path, 'fix: attempt to resolve execution failures (via Augment)')
+                
                 return {
                     'idea': idea.title,
                     'repo': repo_full_name,
@@ -832,6 +858,11 @@ artifacts/
 
             # 8. Generate final README
             readme_success = self.generate_final_readme(repo_full_name, local_clone_path)
+            
+            # 8.5 Commit final README updates
+            if readme_success:
+                logger.info("Committing final README and documentation...")
+                self.commit_and_push(local_clone_path, 'docs: add final README and results documentation')
 
             return {
                 'idea': idea.title,
@@ -843,6 +874,15 @@ artifacts/
 
         except Exception as e:
             logger.error(f"Error processing idea {idea.title}: {e}")
+            
+            # Try to save any work Augment did before the exception
+            if local_clone_path and local_clone_path.exists():
+                try:
+                    logger.info("Exception occurred - attempting to save any uncommitted work...")
+                    self.commit_and_push(local_clone_path, f'chore: save work before error (exception: {str(e)[:50]})')
+                except Exception as commit_error:
+                    logger.warning(f"Could not save uncommitted work: {commit_error}")
+            
             return {
                 'idea': idea.title,
                 'status': 'error',
@@ -875,9 +915,11 @@ artifacts/
         2. Identify the root cause of the failure
         3. Fix any code, configuration, or dependency issues
         4. Adjust experiment parameters if needed
-        5. Commit and push the fixes
+        5. Document the fixes and update relevant files
 
         Focus on getting the experiments to run successfully.
+        
+        NOTE: Do not attempt to commit or push - the orchestrator handles that automatically.
         """
 
         self.augment.run_command(instruction, cwd=local_path)
