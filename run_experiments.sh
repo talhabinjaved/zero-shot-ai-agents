@@ -11,12 +11,12 @@ echo ""
 
 # Check which provider to use
 echo "Which AI provider do you want to use?"
-echo "1) Jules (Recommended - Full API, easiest automation)"
-echo "2) Augment (CLI-based automation)"
-echo "3) OpenHands (Conversation API, BYO models)"
-echo "4) Cosine (Manual import, CI monitoring)"
+echo "1) Jules (Recommended - Full API, comprehensive automation)"
+echo "2) OpenHands (Conversation API, BYO models, full automation)"
 echo ""
-read -p "Enter choice (1-4): " provider_choice
+echo "Note: Augment and Cosine have been removed (see AUGMENT_ISSUES.md and COSINE_LIMITATIONS.md for details)"
+echo ""
+read -p "Enter choice (1-2): " provider_choice
 
 case $provider_choice in
   1)
@@ -24,16 +24,8 @@ case $provider_choice in
     echo "Selected: Jules"
     ;;
   2)
-    PROVIDER="augment"
-    echo "Selected: Augment"
-    ;;
-  3)
     PROVIDER="openhands"
     echo "Selected: OpenHands"
-    ;;
-  4)
-    PROVIDER="cosine"
-    echo "Selected: Cosine"
     ;;
   *)
     echo "Invalid choice. Exiting."
@@ -74,17 +66,6 @@ if [ "$PROVIDER" = "jules" ]; then
         exit 1
     else
         echo "✅ JULES_API_KEY is set"
-    fi
-fi
-
-if [ "$PROVIDER" = "augment" ]; then
-    if [ -z "$AUGMENT_SESSION_AUTH" ]; then
-        echo "❌ AUGMENT_SESSION_AUTH not set"
-        echo "Get by running: auggie --print-augment-token"
-        echo "Then run: export AUGMENT_SESSION_AUTH='your_token'"
-        exit 1
-    else
-        echo "✅ AUGMENT_SESSION_AUTH is set"
     fi
 fi
 
@@ -193,11 +174,7 @@ echo ""
 # Build command based on provider
 if [ "$PROVIDER" = "jules" ]; then
     python orchestrator.py --input "$INPUT_PATH" --max-concurrent 1 --auto-approve
-elif [ "$PROVIDER" = "augment" ]; then
-    python orchestrator.py --input "$INPUT_PATH" --max-concurrent 1
 elif [ "$PROVIDER" = "openhands" ]; then
-    python orchestrator.py --input "$INPUT_PATH" --max-concurrent 1
-elif [ "$PROVIDER" = "cosine" ]; then
     python orchestrator.py --input "$INPUT_PATH" --max-concurrent 1
 fi
 
@@ -212,18 +189,10 @@ if [ "$PROVIDER" = "jules" ]; then
     echo "  1. Visit https://jules.google to monitor sessions"
     echo "  2. Check your GitHub repos for opened PRs"
     echo "  3. Review and merge PRs when ready"
-elif [ "$PROVIDER" = "augment" ]; then
-    echo "  1. Visit https://augmentcode.com to monitor agents"
-    echo "  2. Check your GitHub repos for opened PRs"
-    echo "  3. Review and merge PRs when ready"
 elif [ "$PROVIDER" = "openhands" ]; then
     echo "  1. Visit https://app.all-hands.dev to monitor conversations"
     echo "  2. Check your GitHub repos for opened PRs"
     echo "  3. Review and merge PRs when ready"
-elif [ "$PROVIDER" = "cosine" ]; then
-    echo "  1. Import repos into your Cosine workspace"
-    echo "  2. Configure CI monitoring in Project Settings"
-    echo "  3. Check COSINE_SETUP.md in each repo for details"
 fi
 
 echo ""

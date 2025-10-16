@@ -1,7 +1,7 @@
 title,has_experiments,idea,experiments
-"Analyze Stock Market Trends",False,"Use historical data to predict future stock movements. Build a model that can analyze trends and make predictions.",""
-"Build a Recommendation Engine",False,"Create a simple movie recommendation system using collaborative filtering.",""
-"Test Neural Network Architectures",True,"Compare different neural network architectures for image classification","stop_on_fail: true
+Analyze Stock Market Trends openhands,False,Use historical data to predict future stock movements. Build a model that can analyze trends and make predictions.,
+Build a Recommendation Engine openhands,False,Create a simple movie recommendation system using collaborative filtering.,
+Test Neural Network Architectures openhands,True,Compare different neural network architectures for image classification,"stop_on_fail: true
 steps:
   - name: data_loading
     description: Load and preprocess CIFAR-10 dataset

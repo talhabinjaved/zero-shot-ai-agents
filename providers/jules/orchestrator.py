@@ -619,13 +619,138 @@ env/
 Thumbs.db
 
 # Experiments
-results/
 .cache/
-*.log
+
+# Results - Keep important outputs, ignore temp files
+results/**/*.pkl
+results/**/*.h5
+results/**/*.pt
+results/**/*.pth
+results/**/*.ckpt
+results/**/cache/
+results/**/__pycache__/
+
+# But KEEP these important files:
+!results/**/*.json
+!results/**/*.md
+!results/**/*.csv
+!results/**/*.png
+!results/**/*.jpg
+!results/**/*.svg
+!results/**/*.html
+!results/**/RESULTS.md
+!results/**/EXPERIMENT_STATUS.md
+
+# Artifacts (alternate directory) - same rules
+artifacts/**/*.pkl
+artifacts/**/*.h5
+artifacts/**/*.pt
+artifacts/**/*.pth
+artifacts/**/*.ckpt
+artifacts/**/cache/
+artifacts/**/__pycache__/
+
+!artifacts/**/*.json
+!artifacts/**/*.md
+!artifacts/**/*.csv
+!artifacts/**/*.png
+!artifacts/**/*.jpg
+!artifacts/**/*.svg
+!artifacts/**/*.html
+!artifacts/**/RESULTS.md
+!artifacts/**/EXPERIMENT_STATUS.md
 
 # Jules
 .jules/
 '''
+
+    def _generate_results_quality_requirements(self) -> str:
+        """Generate comprehensive requirements for high-quality RESULTS.md"""
+        return """
+CRITICAL REQUIREMENTS FOR RESULTS.MD:
+
+Your RESULTS.md MUST be comprehensive and publication-quality. Include ALL of the following:
+
+1. **Visualizations (REQUIRED)**
+   - Create plots in artifacts/plots/ directory
+   - Embed them in RESULTS.md using: ![Description](artifacts/plots/filename.png)
+   - Required plots:
+     * Model comparison bar chart (all metrics side-by-side)
+     * Learning curves (training vs validation over time)
+     * Error distribution plot (where models fail)
+     * Confusion matrix (if classification task)
+     * Feature importance plot (what matters most)
+   - Use matplotlib/seaborn, save as PNG files
+   - Make plots publication-ready (labels, titles, legends)
+
+2. **Comprehensive Metrics Table**
+   - Include ALL models and ALL metrics in markdown tables
+   - Add standard deviations where applicable
+   - Show statistical significance (p-values if you ran tests)
+   - Format example:
+     | Model | Metric1 | Metric2 | Metric3 |
+     |-------|---------|---------|---------|
+     | Baseline | X.XX ± Y.YY | ... | ... |
+     | Advanced | X.XX ± Y.YY | ... | ... |
+
+3. **Deep Analysis (NOT just surface-level)**
+   - **Error Analysis**: What did each model get wrong and WHY?
+   - **Comparative Insights**: WHY does one model outperform another?
+   - **Feature Analysis**: Which features/patterns matter most?
+   - **Edge Cases**: Where do models struggle? Provide specific examples
+   - **Statistical Validation**: Are differences statistically significant?
+
+4. **Implementation Details**
+   - Link to key code files: [Model Architecture](scripts/experiment.py#L10-L50)
+   - Mention important hyperparameters used
+   - Note any data preprocessing choices
+   - Reproducibility: random seeds, library versions
+
+5. **Conclusions & Next Steps**
+   - Clear recommendations based on data
+   - Specific next steps (not vague suggestions)
+   - Known limitations and how to address them
+   - Expected improvements from proposed changes
+
+VISUALIZATION EXAMPLES:
+```python
+# In your experiment scripts, create plots like:
+import matplotlib.pyplot as plt
+
+# Model comparison
+plt.figure(figsize=(10, 6))
+plt.bar(model_names, accuracies)
+plt.title('Model Performance Comparison')
+plt.xlabel('Model')
+plt.ylabel('Accuracy')
+plt.savefig('artifacts/plots/model_comparison.png')
+
+# Learning curves
+plt.figure(figsize=(10, 6))
+plt.plot(epochs, train_loss, label='Train')
+plt.plot(epochs, val_loss, label='Validation')
+plt.title('Learning Curves')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.savefig('artifacts/plots/learning_curves.png')
+```
+
+Then in RESULTS.md:
+## Results
+
+### Model Performance
+![Model Comparison](artifacts/plots/model_comparison.png)
+
+The bar chart shows...
+
+### Training Progress
+![Learning Curves](artifacts/plots/learning_curves.png)
+
+The learning curves indicate...
+
+REMEMBER: A good RESULTS.md tells a complete story with data, visuals, and insights!
+"""
 
     def start_jules_session(self, repo_full_name: str, idea: ExperimentIdea,
                            default_branch: str = 'main',
@@ -658,9 +783,11 @@ results/
             6. Only proceed to next step when validation passes
 
             When all steps complete successfully:
-            - Compile RESULTS.md with comprehensive findings
+            - Compile RESULTS.md with comprehensive findings (see requirements below)
             - Upgrade README with: abstract, methods, results, error bars, limitations, next steps
             - Open a PR with all changes
+
+            {self._generate_results_quality_requirements()}
 
             Execute the provided experiment plan faithfully. Sequential dependency between steps is critical.
             """
@@ -685,9 +812,11 @@ results/
                - Only proceed to next step when validation passes
 
             When all steps complete successfully:
-            - Compile RESULTS.md with comprehensive findings
+            - Compile RESULTS.md with comprehensive findings (see requirements below)
             - Upgrade README with: abstract, methods, results, error bars, limitations, next steps
             - Open a PR with all changes
+
+            {self._generate_results_quality_requirements()}
 
             Design a rigorous, falsifiable experiment plan. Sequential dependency between steps is critical.
             """
