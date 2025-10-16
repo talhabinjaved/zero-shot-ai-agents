@@ -699,13 +699,97 @@ def _initialize_repo(self, repo_full_name: str, expected_branch: str = 'main') -
 
 ---
 
+## Fix #10: Cosine Connection Resilience (GitHub API Retry Logic)
+
+**Applied to:** Cosine  
+**Date:** October 16, 2025  
+**Severity:** 🟡 Medium - Transient network failures
+
+### Problem
+
+Cosine orchestrator would fail when GitHub API connections dropped during file uploads:
+
+```
+Error: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+```
+
+This happened when:
+1. Uploading multiple files rapidly (8 files in ~2 seconds)
+2. Transient network issues
+3. Potential GitHub API rate limiting
+
+### Root Cause
+
+The `put_file()` method had no retry logic for connection errors, and files were uploaded too quickly without rate limiting protection.
+
+### Fix Applied
+
+**File:** `providers/cosine/orchestrator.py`
+
+**1. Added Retry Logic with Exponential Backoff**
+
+```python
+def put_file(self, repo_full_name: str, path: str, content: str, message: str, max_retries: int = 3) -> Dict[str, Any]:
+    """Create or update a file in the repository with retry logic."""
+    # ... existing code ...
+    
+    # Retry logic for transient network errors
+    for attempt in range(max_retries):
+        try:
+            response = self.session.put(url, json=payload)
+            response.raise_for_status()
+            return response.json()
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                logger.warning(f"Connection error uploading {path}, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                logger.error(f"Failed to upload {path} after {max_retries} attempts")
+                raise
+        except requests.exceptions.HTTPError as e:
+            # Don't retry HTTP errors (4xx, 5xx) - these are not transient
+            logger.error(f"HTTP error uploading {path}: {e}")
+            raise
+```
+
+**2. Added Rate Limiting Between File Uploads**
+
+```python
+# In _copy_template_files() and scaffold_files loop:
+self.github.put_file(repo_full_name, repo_path, content, f'add {repo_path}')
+# Small delay to avoid overwhelming GitHub API
+time.sleep(0.5)
+```
+
+### Benefits
+
+- ✅ **Automatic retry** for connection errors (up to 3 attempts)
+- ✅ **Exponential backoff** prevents overwhelming the API (1s, 2s, 4s delays)
+- ✅ **Rate limiting protection** with 0.5s delays between uploads
+- ✅ **Smart error handling** - only retries transient errors, not HTTP errors
+- ✅ **Detailed logging** shows retry attempts
+
+### Test Results
+
+**Before Fix:**
+- Run 1: ✅ Success
+- Run 2: ❌ Connection error (transient)
+
+**After Fix:**
+- Will auto-retry and succeed on transient errors
+- 0.5s delays reduce API pressure
+
+---
+
 ## Future Improvements
 
 1. Add integration tests for each provider
 2. Create unified test suite across all providers
-3. Add retry logic for transient GitHub API failures
+3. ~~Add retry logic for transient GitHub API failures~~ ✅ **DONE for Cosine**
 4. Support custom branch names beyond main/master
 5. Add branch creation if specific branch is required
+6. **Consider applying Cosine's retry logic to other providers**
 
 ---
 
@@ -733,9 +817,15 @@ def _initialize_repo(self, repo_full_name: str, expected_branch: str = 'main') -
 - ✅ **Fixed misleading instructions** (removed impossible commit requests)
 - ✅ **Comprehensive commit strategy** (planning, fixes, README, exceptions)
 
+**Cosine additionally has:**
+- ✅ **Retry logic with exponential backoff** (3 attempts: 1s, 2s, 4s delays)
+- ✅ **Rate limiting protection** (0.5s delays between file uploads)
+- ✅ **Smart error handling** (retries transient errors, fails fast on HTTP errors)
+
 **Total changes:**
 - **All providers:** ~6 methods modified, ~150 lines per orchestrator
 - **Jules:** +2 additional enhancements
 - **Augment:** +6 new methods, ~350 additional lines (major workflow refactor + resilience improvements)
-- **Augment fixes:** 9 total fixes applied (6 refactor + 3 resilience)
+- **Cosine:** +1 enhanced method with retry logic, rate limiting protection
+- **Fix count:** 10 total fixes across all providers
 

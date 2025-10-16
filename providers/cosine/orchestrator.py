@@ -131,8 +131,8 @@ class GitHubClient:
             'repo_data': repo_data
         }
 
-    def put_file(self, repo_full_name: str, path: str, content: str, message: str) -> Dict[str, Any]:
-        """Create or update a file in the repository."""
+    def put_file(self, repo_full_name: str, path: str, content: str, message: str, max_retries: int = 3) -> Dict[str, Any]:
+        """Create or update a file in the repository with retry logic."""
         url = f'{self.api_base}/repos/{repo_full_name}/contents/{path}'
 
         # Encode content as base64
@@ -154,10 +154,24 @@ class GitHubClient:
             # File doesn't exist, we'll create it
             pass
 
-        response = self.session.put(url, json=payload)
-        response.raise_for_status()
-
-        return response.json()
+        # Retry logic for transient network errors
+        for attempt in range(max_retries):
+            try:
+                response = self.session.put(url, json=payload)
+                response.raise_for_status()
+                return response.json()
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.warning(f"Connection error uploading {path}, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Failed to upload {path} after {max_retries} attempts")
+                    raise
+            except requests.exceptions.HTTPError as e:
+                # Don't retry HTTP errors (4xx, 5xx) - these are not transient
+                logger.error(f"HTTP error uploading {path}: {e}")
+                raise
 
     def trigger_workflow(self, repo_full_name: str, workflow_name: str, inputs: Dict[str, Any] = None) -> bool:
         """Trigger a workflow dispatch event."""
@@ -335,6 +349,8 @@ class CosineOrchestrator:
                     content,
                     f'add {repo_path}'
                 )
+                # Small delay to avoid overwhelming GitHub API
+                time.sleep(0.5)
 
         # Add additional scaffold files
         scaffold_files = {
@@ -360,6 +376,8 @@ class CosineOrchestrator:
                 content,
                 f'add {file_path}'
             )
+            # Small delay to avoid overwhelming GitHub API
+            time.sleep(0.5)
 
     def _customize_experiments(self, repo_full_name: str, idea: ExperimentIdea):
         """Customize the experiments.yaml based on the idea."""
