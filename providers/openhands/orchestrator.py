@@ -608,23 +608,80 @@ artifacts/**/*.weights
         """
         return """
 ═══════════════════════════════════════════════════════════════════
-CRITICAL: RESULTS.MD QUALITY REQUIREMENTS
+UNIVERSAL RESULTS.MD REQUIREMENTS (AUTO-ADAPT TO ANY TASK TYPE)
 ═══════════════════════════════════════════════════════════════════
+
+**STEP 1: AUTO-DETECT YOUR TASK TYPE**
+Read the experiment idea/description and identify which category applies:
+• ML/Data Science: models, training, classification, regression, neural networks
+• Engineering/Physics: simulations, thermal analysis, fluid dynamics, structural analysis
+• Economics/Finance: LCOS, NPV, cost optimization, market analysis, revenue models
+• Data Analysis: statistical analysis, correlations, trends, exploratory data analysis
+• Computational Science: molecular dynamics, climate models, numerical methods
+• Hybrid: combines multiple categories
+
+**STEP 2: ADAPT YOUR ENTIRE WORKFLOW**
+Based on the detected type, automatically adjust ALL of the following:
+- Visualizations (what plots to create)
+- Metrics (what to measure)
+- Analysis approach (what questions to answer)
+- Success criteria (what defines "good results")
 
 Your RESULTS.md MUST be publication-quality with:
 
-1. VISUALIZATIONS (MANDATORY):
-   - Create matplotlib/seaborn plots for ALL key metrics
-   - Save plots to artifacts/plots/ directory as PNG files
-   - Embed ALL plots in RESULTS.md using relative paths
+1. VISUALIZATIONS (REQUIRED - Auto-Select Based on Task Type):
+   - Create plots in artifacts/plots/ directory
+   - Embed in RESULTS.md using: `![Description](artifacts/plots/filename.png)`
+   - Use matplotlib/seaborn/plotly, save as PNG/HTML
+   - Make plots publication-ready (labels, titles, legends, units, grid)
    
-   Required plot types:
-   • Bar charts comparing model/approach performance
-   • Line plots showing training curves or trends over time
-   • Confusion matrices for classification tasks
-   • ROC curves for binary classification
-   • Scatter plots for correlation analysis
-   • Heatmaps for feature importance or correlation matrices
+   SELECT APPROPRIATE VISUALIZATIONS FOR YOUR DETECTED TASK TYPE:
+   
+   ML/DATA SCIENCE:
+   • Model comparison (bar charts, radar plots)
+   • Learning curves (train vs validation loss/accuracy over epochs)
+   • Confusion matrix + classification report heatmap
+   • ROC curves + AUC scores (binary/multiclass)
+   • Feature importance (bar chart, SHAP summary)
+   • Error distribution (histogram, box plots by class)
+   • Prediction scatter plots (actual vs predicted)
+   
+   ENGINEERING/PHYSICS:
+   • Thermal/pressure contour maps (2D/3D spatial distribution)
+   • Time-series (temperature, pressure, flow rates, stress over time)
+   • Phase diagrams (T-P, T-s, h-s for thermodynamic cycles)
+   • Sensitivity surfaces (3D parameter impact on performance)
+   • Safety envelopes (operating limits, failure boundaries)
+   • Sankey diagrams (energy/mass/momentum flow)
+   • Comparison bar charts (vs. standards, benchmarks, literature)
+   • Mesh/geometry visualizations (FEA, CFD domains)
+   
+   ECONOMICS/FINANCE:
+   • Cost breakdown (pie charts, waterfall charts, stacked bars)
+   • Sensitivity tornado charts (parameter impact on LCOS/NPV/IRR)
+   • Time-series (cash flows, revenue, costs over project lifetime)
+   • Scatter plots (cost vs. efficiency trade-offs)
+   • Break-even analysis (lines crossing at profitability point)
+   • Monte Carlo distributions (probability density of outcomes)
+   • Comparison bar charts (vs. competing technologies, benchmarks)
+   
+   DATA ANALYSIS:
+   • Correlation matrices (heatmaps)
+   • Distribution plots (histograms, KDE, box plots, violin plots)
+   • Scatter plots with regression lines (relationships between variables)
+   • Time-series with trends (moving averages, seasonality decomposition)
+   • Bar charts (categorical comparisons, frequency counts)
+   • Geographic maps (if spatial data present)
+   
+   COMPUTATIONAL SCIENCE:
+   • Convergence plots (residuals vs. iterations, mesh refinement)
+   • Solution fields (contour plots, streamlines, vector fields)
+   • Temporal evolution (animation frames or key snapshots)
+   • Spectrum analysis (FFT, power spectral density)
+   • Error quantification (L2 norm, relative error vs. analytical)
+   • Scaling studies (speedup, efficiency vs. processors/mesh size)
+   
+   HYBRID (SELECT FROM MULTIPLE CATEGORIES ABOVE)
    
    Example code for creating plots:
    ```python
@@ -664,27 +721,74 @@ Your RESULTS.md MUST be publication-quality with:
    The learning curves indicate...
    ```
 
-2. COMPREHENSIVE METRICS:
-   Create a detailed metrics table with:
-   • Primary metrics (accuracy, F1, RMSE, etc.)
-   • Secondary metrics (precision, recall, AUC, etc.)
-   • Performance metrics (training time, inference time, memory)
-   • Statistical significance (p-values, confidence intervals)
+2. COMPREHENSIVE METRICS TABLES (Auto-Select Metrics for Your Task Type):
    
-   Example table format:
-   ```markdown
-   | Model | Accuracy | F1-Score | Precision | Recall | Train Time | Inference Time |
-   |-------|----------|----------|-----------|--------|------------|----------------|
-   | Model A | 0.95 | 0.94 | 0.96 | 0.92 | 120s | 0.5ms |
-   | Model B | 0.92 | 0.91 | 0.89 | 0.93 | 45s | 0.2ms |
-   ```
+   ML/DATA SCIENCE METRICS:
+   | Model | Accuracy | Precision | Recall | F1 | AUC-ROC | Train Time | Inference Time |
+   | Baseline | 0.XX ± 0.YY | ... | ... | ... | ... | XXs | XXms |
+   | Advanced | 0.XX ± 0.YY | ... | ... | ... | ... | XXs | XXms |
+   
+   ENGINEERING/PHYSICS METRICS:
+   | Config | Efficiency | Safety Margin | Max Temp | Max Pressure | ΔP | Mass Flow | Status |
+   | Design A | XX% | X.Xσ | XXX°C | XX MPa | X.X bar | XX kg/s | PASS/FAIL |
+   | Design B | XX% | X.Xσ | XXX°C | XX MPa | X.X bar | XX kg/s | PASS/FAIL |
+   
+   ECONOMICS/FINANCE METRICS:
+   | Scenario | LCOS ($/kWh) | NPV ($M) | IRR (%) | Payback (yrs) | Capex ($/kW) | Opex ($/kW-yr) |
+   | Base | X.XXX | XXX | XX.X | X.X | XXX | XX |
+   | Optimistic | X.XXX | XXX | XX.X | X.X | XXX | XX |
+   
+   DATA ANALYSIS METRICS:
+   | Variable | Mean | Std Dev | Median | Min | Max | Correlation | p-value |
+   | Var A | XX.X | X.X | XX.X | XX | XX | X.XX | X.XXX |
+   | Var B | XX.X | X.X | XX.X | XX | XX | X.XX | X.XXX |
+   
+   COMPUTATIONAL SCIENCE METRICS:
+   | Mesh | DOF | Iterations | Residual | L2 Error | CPU Time | Memory | Converged |
+   | Coarse | XXXX | XXX | X.XXe-X | X.XX% | XXXs | XX GB | Yes/No |
+   | Fine | XXXX | XXX | X.XXe-X | X.XX% | XXXs | XX GB | Yes/No |
 
-3. DEEP ANALYSIS:
-   • Error Analysis: What types of inputs cause failures?
-   • Comparative Insights: Why does one approach outperform another?
-   • Trade-offs: Speed vs accuracy, complexity vs performance
-   • Limitations: What doesn't work well? Edge cases?
-   • Unexpected Findings: Surprises in the data or results
+3. DEEP ANALYSIS (AUTO-ADAPT - Select Questions Relevant to Your Task):
+   
+   ML/DATA SCIENCE:
+   • Error Analysis: What input patterns cause failures? Which classes are confused?
+   • Model Comparison: WHY does one approach outperform? Architecture? Data? Hyperparams?
+   • Feature Importance: Which features drive predictions? Any surprising correlations?
+   • Generalization: How well does it work on unseen data? Overfitting indicators?
+   • Edge Cases: Failure modes, adversarial examples, out-of-distribution performance
+   • Statistical Significance: Are performance differences real or noise? (t-tests, bootstrap CI)
+   
+   ENGINEERING/PHYSICS:
+   • Hypothesis Validation: For each H1, H2, etc. → state PASS/FAIL with quantitative evidence
+   • Safety Analysis: Failure modes, safety factors, margins to critical limits, risk mitigations
+   • Sensitivity Analysis: Which parameters most impact performance/safety/cost? (Sobol, Morris)
+   • Standards Compliance: How do results compare to codes? (API, ASME, ISO, building codes)
+   • Physical Validation: Do results make physical sense? Energy balance? Mass conservation?
+   • Trade-offs: Performance vs. cost, efficiency vs. complexity, reliability vs. simplicity
+   • Feasibility: Clear go/no-go recommendation with technical justification
+   • Literature Validation: Compare to published data, simulations, experimental results (cite sources)
+   
+   ECONOMICS/FINANCE:
+   • Sensitivity Drivers: Which assumptions most impact profitability? (tornado charts)
+   • Risk Analysis: Probability of loss? Worst-case scenarios? Monte Carlo confidence intervals?
+   • Comparison: How competitive vs. alternatives? Market position? Cost advantages?
+   • Assumptions: Are cost/revenue/growth assumptions reasonable? Cite market data
+   • Break-even: At what point profitable? What conditions must hold?
+   • Recommendations: Invest? Optimize? Abandon? Under what conditions?
+   
+   DATA ANALYSIS:
+   • Correlation vs. Causation: What relationships are real? Confounding variables?
+   • Statistical Significance: Are trends/differences significant? (p < 0.05, effect sizes)
+   • Outliers: Why do they exist? Data errors or real phenomena?
+   • Temporal Trends: Seasonality? Long-term drift? Regime changes?
+   • Actionable Insights: What decisions can be made from this data?
+   
+   COMPUTATIONAL SCIENCE:
+   • Convergence: Did the solution converge? Residuals acceptable? Mesh-independent?
+   • Validation: Comparison to analytical solutions, benchmarks, experimental data
+   • Physical Realism: Conservation laws satisfied? Boundary conditions correct?
+   • Numerical Errors: Discretization error? Round-off? Stability issues?
+   • Scalability: Performance on larger problems? Parallel efficiency?
 
 4. IMPLEMENTATION DETAILS:
    • Hyperparameters used
