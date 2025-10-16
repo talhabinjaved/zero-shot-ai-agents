@@ -373,10 +373,13 @@ class JulesOrchestrator:
         Returns:
             Tuple of (full_name, repo_name, default_branch)
         """
-        # Generate a clean repo name
-        repo_name = slugify(idea.title, max_length=80, word_boundary=True)
+        # Generate a clean repo name with provider suffix
+        repo_name = slugify(idea.title, max_length=70, word_boundary=True)  # Leave room for "-jules"
         if len(repo_name) == 0:
             repo_name = f"experiment-{int(time.time())}"
+        
+        # Append provider name to avoid conflicts when running same experiment on multiple providers
+        repo_name = f"{repo_name}-jules"
 
         # Ensure uniqueness
         base_name = repo_name
@@ -673,7 +676,7 @@ Your RESULTS.md MUST be comprehensive and publication-quality. Include ALL of th
 
 1. **Visualizations (REQUIRED)**
    - Create plots in artifacts/plots/ directory
-   - Embed them in RESULTS.md using: ![Description](artifacts/plots/filename.png)
+   - Embed them in RESULTS.md using markdown image syntax: `![Description](artifacts/plots/filename.png)`
    - Required plots:
      * Model comparison bar chart (all metrics side-by-side)
      * Learning curves (training vs validation over time)
@@ -736,7 +739,8 @@ plt.legend()
 plt.savefig('artifacts/plots/learning_curves.png')
 ```
 
-Then in RESULTS.md:
+Then in RESULTS.md, use this format:
+```markdown
 ## Results
 
 ### Model Performance
@@ -748,6 +752,7 @@ The bar chart shows...
 ![Learning Curves](artifacts/plots/learning_curves.png)
 
 The learning curves indicate...
+```
 
 REMEMBER: A good RESULTS.md tells a complete story with data, visuals, and insights!
 """

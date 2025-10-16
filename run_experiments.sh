@@ -112,22 +112,62 @@ echo "Input File Selection"
 echo "=========================================="
 echo ""
 
-# Ask for input file
-echo "Available data files:"
-ls -1 ../../data/
+# Find all CSV files in data directory
+DATA_DIR="../../data"
+CSV_FILES=($(ls -1 "$DATA_DIR"/*.csv 2>/dev/null | xargs -n1 basename))
+
+if [ ${#CSV_FILES[@]} -eq 0 ]; then
+    echo "❌ No CSV files found in $DATA_DIR"
+    exit 1
+fi
+
+# Show available files with numbers
+echo "Available experiment files:"
+echo ""
+for i in "${!CSV_FILES[@]}"; do
+    file="${CSV_FILES[$i]}"
+    num=$((i + 1))
+    
+    # Show a preview of the file (first idea title if possible)
+    first_line=$(head -2 "$DATA_DIR/$file" | tail -1 | cut -d',' -f1)
+    if [ -n "$first_line" ] && [ "$first_line" != "title" ]; then
+        echo "  $num) $file"
+        echo "     └─ First idea: $first_line"
+    else
+        echo "  $num) $file"
+    fi
+done
 
 echo ""
-read -p "Enter input file name (default: ideas.csv): " input_file
-input_file=${input_file:-ideas.csv}
+read -p "Select file (1-${#CSV_FILES[@]}) or press Enter for ideas.csv: " file_choice
 
-INPUT_PATH="../../data/$input_file"
+# Handle default choice (ideas.csv)
+if [ -z "$file_choice" ]; then
+    input_file="ideas.csv"
+    # Check if ideas.csv exists in the array
+    if [[ ! " ${CSV_FILES[@]} " =~ " ideas.csv " ]]; then
+        echo "❌ Default file ideas.csv not found"
+        exit 1
+    fi
+else
+    # Validate numeric input
+    if ! [[ "$file_choice" =~ ^[0-9]+$ ]] || [ "$file_choice" -lt 1 ] || [ "$file_choice" -gt ${#CSV_FILES[@]} ]; then
+        echo "❌ Invalid choice. Please select 1-${#CSV_FILES[@]}"
+        exit 1
+    fi
+    
+    # Get selected file (array is 0-indexed, display is 1-indexed)
+    input_file="${CSV_FILES[$((file_choice - 1))]}"
+fi
+
+INPUT_PATH="$DATA_DIR/$input_file"
 
 if [ ! -f "$INPUT_PATH" ]; then
     echo "❌ File not found: $INPUT_PATH"
     exit 1
 fi
 
-echo "✅ Using input file: $INPUT_PATH"
+echo "✅ Using input file: $input_file"
 
 echo ""
 echo "=========================================="
