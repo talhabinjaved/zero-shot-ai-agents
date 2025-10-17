@@ -1277,8 +1277,120 @@ The SVD model struggled with cold-start users (< 5 ratings): accuracy dropped to
 **Total Changes (Per Provider):**
 - **Jules:** ~7 methods modified, +3 new methods, ~200 total lines of improvements
 - **OpenHands:** ~7 methods modified, +1 new method, ~185 total lines of improvements
-- **Fix count:** 12 total fixes applied to both providers
+- **Fix count:** 14 total fixes applied to both providers
 - **Result:** Both providers produce publication-quality experiments with comprehensive visualizations
+
+---
+
+## 🔧 **Fix #13: 422/404 Error Handling in Repository Creation**
+
+**Problem:** Both Jules and OpenHands orchestrators incorrectly handled HTTP 422 errors during repository creation. When GitHub returned a 422 error, the code assumed the repository already existed and tried to fetch it. If the repository actually didn't exist (404), the error crashed the entire operation.
+
+**Root Cause:** HTTP 422 can be returned for multiple reasons:
+- Repository already exists
+- Invalid repository name (too long, invalid characters, etc.)
+- Repository name conflicts with organization settings
+- Other GitHub validation errors
+
+The old code incorrectly assumed **all 422 errors = repo already exists**.
+
+**Solution:** Implemented proper error handling that:
+1. Catches 422 errors during repository creation
+2. Attempts to verify if the repo actually exists by fetching it
+3. If 404 is found (repo doesn't exist): logs the original 422 error details and re-raises it properly
+4. If repo is found (200 OK): uses the existing repository and returns its default branch
+5. If other error occurs during fetch: re-raises the fetch error
+
+**Code Changes:**
+```python
+# Before (Jules & OpenHands)
+except requests.HTTPError as e:
+    if e.response.status_code == 422:  # Repository already exists
+        logger.warning(f"Repository {self.config.owner}/{repo_name} already exists, using existing")
+        full_name = f"{self.config.owner}/{repo_name}"
+        
+        # Get the existing repo's default branch
+        existing_repo_info = self.github.get_repo(full_name)  # ← 404 crashes here
+        default_branch = existing_repo_info['default_branch']
+        return full_name, repo_name, default_branch
+
+# After (Jules & OpenHands)
+except requests.HTTPError as e:
+    if e.response.status_code == 422:  # Repository might already exist or validation error
+        full_name = f"{self.config.owner}/{repo_name}"
+        
+        # Try to verify the repo actually exists (422 can mean other validation errors)
+        try:
+            existing_repo_info = self.github.get_repo(full_name)
+            default_branch = existing_repo_info['default_branch']
+            logger.warning(f"Repository {full_name} already exists, using existing")
+            return full_name, repo_name, default_branch
+        except requests.HTTPError as fetch_error:
+            if fetch_error.response.status_code == 404:
+                # Repo doesn't exist - 422 error was from something else
+                logger.error(f"Repository creation failed with 422, but repo doesn't exist at {full_name}")
+                logger.error(f"Original 422 error response: {e.response.text[:200]}")
+                raise e  # Re-raise the original 422 error
+            else:
+                raise fetch_error
+```
+
+**Files Modified:**
+- `providers/jules/orchestrator.py` (lines 404-421)
+- `providers/openhands/orchestrator.py` (lines 343-360)
+
+**Result:** Proper error handling that distinguishes between actual existing repositories and validation errors, providing clear error messages for debugging.
+
+---
+
+## 🔧 **Fix #14: Repository Description Sanitization**
+
+**Problem:** GitHub API rejected repository descriptions containing control characters (newlines, tabs, etc.) with error:
+```
+"field":"description","message":"description control characters are not allowed"
+```
+
+**Root Cause:** CSV files contained multiline descriptions with `\n`, `\t`, and other control characters that GitHub's API validation rejects.
+
+**Solution:** Added description sanitization that:
+1. Takes the raw description (first 140 characters)
+2. Splits on all whitespace (removes `\n`, `\t`, multiple spaces)
+3. Rejoins with single spaces
+4. Trims to 140 character limit
+
+**Code Changes:**
+```python
+# Before (Jules & OpenHands)
+repo_info = self.github.create_repo(
+    repo_name,
+    description=idea.idea[:140],  # GitHub description limit
+    private=True
+)
+
+# After (Jules & OpenHands)
+# Sanitize description: remove control characters and newlines
+raw_description = idea.idea[:140]
+# Remove control characters and compress whitespace
+sanitized_description = ' '.join(raw_description.split())[:140]
+
+repo_info = self.github.create_repo(
+    repo_name,
+    description=sanitized_description,
+    private=True
+)
+```
+
+**Example Transformation:**
+- ❌ **Before:** `"CavernStack PTES\nExecutive Summary\n\nA comprehensive..."`
+- ✅ **After:** `"CavernStack PTES Executive Summary A comprehensive..."`
+
+**Files Modified:**
+- `providers/jules/orchestrator.py` (lines 393-400)
+- `providers/openhands/orchestrator.py` (lines 331-340)
+
+**Result:** Repository creation succeeds with clean, GitHub-compliant descriptions.
+
+---
 
 **Removed Providers:**
 - ❌ **Augment** - Removed due to 100% backend failure rate (JavaScript errors, API timeouts)
