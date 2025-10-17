@@ -1,0 +1,291 @@
+title,has_experiments,idea,experiments
+CavernStack PTES 12-Experiment Computational Suite,False,"COMPREHENSIVE ENGINEERING VALIDATION SUITE for CavernStack™ PTES system with 12 ordered experiments spanning properties, thermal modeling, fluid dynamics, cycle analysis, economics, and site screening.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  CRITICAL: This is a PHASED 8-WEEK IMPLEMENTATION PLAN (Engineering/Physics)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+EXECUTION STRATEGY:
+1. Build experiments 01-12 IN ORDER (later experiments depend on earlier ones)
+2. Each experiment produces CSVs in results/ directory
+3. Each experiment has PASS/FAIL acceptance criteria (log results in RESULTS.md)
+4. Complete all 12 before generating final comprehensive analysis
+5. Use provided code templates as starting points (adapt as needed)
+
+CONTEXT: CavernStack is a Pumped Thermal Energy Storage system using a cold salt cavern (5-25°C) with topside hot storage (500-600°C) and a buffer cavern for pressure stabilization. Power conversion uses closed sCO₂ Brayton cycle (20-25 MPa).
+
+TARGET SYSTEM SPECS:
+- 50 MWe × 10 hours storage
+- Hot store: 3 towers (10m Ø × 32m H) with ~11 kt ceramic media
+- Cold cavern: Operating at ≤25°C with perimeter guard-ring
+- Buffer cavern: Maintains ±5 bar during thermal ramps
+- Target LCOS: ~$0.049/kWh (DOE Storage Shot: $0.05/kWh)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REQUIRED PYTHON ENVIRONMENT (install before starting)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create pyproject.toml with dependencies:
+numpy>=1.26, scipy>=1.13, pandas>=2.2, xarray>=2024.3.0, pint>=0.23, pint-xarray>=0.4, coolprop>=6.6.0, fipy>=3.4.3, fluids>=1.1.0, SALib>=1.5.0, plotly>=5.24.0, numba>=0.60, dask[distributed]>=2025.1.0, pyyaml>=6.0.2, typer>=0.12.4
+
+Optional: tespy>=0.9.7 (for cycle modeling), idaes-pse==1.7.0, pyomo>=6.8.0 (for rigorous optimization)
+
+Create src/csutils/common.py with:
+- Logging setup
+- CSV saving helper (save_csv function)
+- Acceptance class for PASS/FAIL reporting
+- Path management (ROOT, RES directories)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12-EXPERIMENT BREAKDOWN (Execute in Order - Week by Week)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WEEK 1: Bootstrap & Properties
+─────────────────────────────────────────────────────────────────────
+EXP-01: CO₂ Properties Validation (CoolProp)
+  Goal: Validate thermophysical properties across 5-600°C, 1-25 MPa using CoolProp (Span-Wagner EOS)
+  Acceptance: 
+    • Density monotonically increases with pressure at fixed T
+    • No NaN/Inf values across grid
+    • Max relative error < 0.2% on coarse grid verification
+  Outputs: results/exp01_co2_property_grid.csv
+  Key Code Pattern:
+    from CoolProp.CoolProp import PropsSI
+    rho = PropsSI('D', 'T', TK, 'P', Pa, 'CO2')  # kg/m³
+    cp = PropsSI('C', 'T', TK, 'P', Pa, 'CO2')   # J/kg/K
+    mu = PropsSI('V', 'T', TK, 'P', Pa, 'CO2')   # Pa·s
+    k = PropsSI('L', 'T', TK, 'P', Pa, 'CO2')    # W/m/K
+  Watch-outs: Near critical region (~31°C, ~7.377 MPa) derivatives get noisy; sample more finely
+
+WEEK 2: Hot Store Physics
+─────────────────────────────────────────────────────────────────────
+EXP-02: Packed Bed Tower (Schumann + Ergun)
+  Goal: Validate 3×(10m Ø × 32m H) capacity and pressure drop
+  Acceptance:
+    • Usable energy ≥ 857 MWhth (with 20% reserve)
+    • ΔP/tower ≤ 0.2 bar at nameplate mass flux
+  Outputs: results/exp02_packed_bed_summary.csv
+  Key Formula: Ergun equation for pressure drop
+    dP/L = 150*(1-ε)²/ε³ * μ*v/dp² + 1.75*(1-ε)/ε³ * ρ*v²/dp
+    where ε = void fraction (0.30-0.50), dp = particle diameter (m)
+  Watch-outs: Ergun uses particle DIAMETER not radius; keep ε in [0.30, 0.50]
+
+WEEK 3: Guard-Ring Thermal Analysis
+─────────────────────────────────────────────────────────────────────
+EXP-03: Guard-Ring Wall Clamp (2-D Conduction, FiPy)
+  Goal: Compute rock heat leak at 15°C wall setpoint using FiPy finite volume PDE solver
+  Acceptance:
+    • For k_salt in 2.5-6.0 W/m/K, far-field 40°C → duty 0.08-0.20 MW
+    • Wall temperature clamp within ±2°C
+  Outputs: results/exp03_guard_duty_per_meter.csv
+  Key Code: FiPy finite volume PDE solver (NIST)
+    from fipy import CellVariable, Grid2D, DiffusionTerm
+    mesh = Grid2D(dx=L/nx, dy=H/ny, nx=nx, ny=ny)
+    T = CellVariable(name='T', mesh=mesh, value=Tfar)
+    T.constrain(Twall, mesh.facesLeft)
+    eq = DiffusionTerm(coeff=k) == 0
+  Watch-outs: Start with coarse mesh (100×150) then refine; validate steady solution (residual < 1e-6)
+
+WEEK 4: Downhole Strings & Piping
+─────────────────────────────────────────────────────────────────────
+EXP-04: Coaxial Downhole String (Heat Transfer)
+  Goal: Validate UA and ensure jet velocity at wall < 1 m/s
+  Acceptance:
+    • UA per string meets duty requirements
+    • Diffuser jet velocity < 1.0 m/s at nameplate flow
+  Outputs: results/exp04_coax_summary.csv
+  Key: Dittus-Boelter correlation for h, hydraulic diameter for annulus
+    Nu = 0.023*Re^0.8*Pr^n  (n=0.4 heating, n=0.3 cooling)
+    Dh_annulus = D_outer - D_inner
+  Watch-outs: Use hydraulic diameter for annulus; ensure Re>2300 for Dittus-Boelter validity
+
+EXP-06: Equalization Line Sizing (fluids library)
+  Goal: Size conduits for v ≤ 5 m/s, no choked flow
+  Acceptance:
+    • Recommended D ≥ 18″ (0.457 m) for target mass flow
+    • No critical flow at setpoints (check with fluids.compressible.is_critical_flow)
+  Outputs: results/exp06_line_sizing.csv
+  Key Code: 
+    from fluids.compressible import is_critical_flow
+    choked = is_critical_flow(P1=1e7, P2=9.5e6, k=1.3)
+  Watch-outs: All fluids functions assume SI units; verify bounds
+
+WEEK 5: Buffer Dynamics
+─────────────────────────────────────────────────────────────────────
+EXP-05: Two-Cavern Mass Equalization (Real Gas ODE)
+  Goal: Demonstrate ±5 bar band for 10K swings over 3-4 hours
+  Acceptance:
+    • For 10K, 4h ramp → ΔP ≤ ±5 bar
+    • Mass conservation < 1e-6 relative error
+  Outputs: results/exp05_equalization_timeseries.csv
+  Dependencies: Uses K_line conductance from Exp-06
+  Key: Use CoolProp for real gas density, NOT ideal gas law
+    rho = PropsSI('D','T',T,'P',P,'CO2')
+    # Iterate: dm = K_line*(P1-P2)*dt; update masses; invert rho→P
+  Watch-outs: Keep mass strictly conserved; widen P search bounds to 0.5-30 MPa if needed
+
+WEEK 6: Cycle & Heat Exchangers
+─────────────────────────────────────────────────────────────────────
+EXP-07: sCO₂ PTES Cycle (TESPy Baseline)
+  Goal: Show recuperated Brayton achieves target efficiency
+  Acceptance:
+    • Cycle efficiency η in 0.65-0.72 band
+    • Converged solution with reasonable component maps
+  Outputs: results/exp07_tespy_cycle_summary.csv
+  Key Code:
+    from tespy.networks import Network
+    from tespy.components import Compressor, Turbine, HeatExchangerSimple
+    nw = Network(T_unit='K', p_unit='Pa', h_unit='J/kg', m_unit='kg/s')
+    # Define components, connections, set parameters, solve
+  Watch-outs: TESPy needs minimal specs (m, T, p); initialize with fewer components if diverging
+
+EXP-08: PCHE Sizing (ε-NTU + Pressure Drop)
+  Goal: Validate recuperator UA/ΔP are manufacturable
+  Acceptance:
+    • Required UA achievable with Δp < 0.2 bar per side
+    • Channel Re > 2000 for correlations validity
+  Outputs: results/exp08_pche_sizing.csv
+  Key: ε-NTU method for counterflow, Fanning friction
+    ε = (1-exp(-NTU*(1-Cr)))/(1-Cr*exp(-NTU*(1-Cr)))  for Cr≠1
+    UA = NTU * C_min
+    Δp = 4*f*(L/Dh)*(G²)/(2*rho)  (f~0.02 for turbulent)
+  Watch-outs: ε-NTU is for counterflow; note correlation choice for zig-zag channels
+
+WEEK 7: Plant Dynamics & Sensitivity
+─────────────────────────────────────────────────────────────────────
+EXP-09: Plant Lumped Transient (Integrated ODE)
+  Goal: Integrate hot-store, cycle, ring duty, buffer → test ramps with interlocks
+  Acceptance:
+    • 10h discharge at ~50 MWe with RTE in target band
+    • NO interlock trips (wall T, ΔP limits from Exp-03, Exp-05)
+  Outputs: results/exp09_plant_transient.csv
+  Dependencies: Uses Exp-03 (ring duty), Exp-05 (buffer band), Exp-07 (cycle efficiency)
+  Watch-outs: Keep energy bookkeeping explicit; wire interlocks to trip if ΔP>5 bar or T_wall exceeds limits
+
+EXP-10: Sensitivity Analysis (SALib Sobol)
+  Goal: Identify top parameter drivers for RTE, ΔP, costs
+  Acceptance:
+    • Sobol S1 and ST indices computed with confidence intervals
+    • Clear top-5 drivers identified
+  Outputs: results/exp10_sobol_rte.csv, results/exp10_sobol_dp.csv
+  Key Code:
+    from SALib.sample import saltelli
+    from SALib.analyze import sobol
+    problem = {'num_vars': 5, 'names': [...], 'bounds': [...]}
+    X = saltelli.sample(problem, 512, calc_second_order=False)
+    Y = np.array([model(x) for x in X])
+    Si = sobol.analyze(problem, Y)
+  Watch-outs: Fix random seed; keep model fast (<5 ms per eval); parameters: k_salt, η_turb, ε_recup, ramp_h, roughness
+
+WEEK 8: Economics & Site Screening
+─────────────────────────────────────────────────────────────────────
+EXP-11: LCOS + Stacked Revenue
+  Goal: Transparent LCOS calculation with cooling revenue potential
+  Acceptance:
+    • Base case LCOS ≈ $0.05/kWh-e (DOE Storage Shot target)
+    • Sensitivity to capex ($650-850/kWe), cycles (200-365/y), RTE (0.65-0.72)
+  Outputs: results/exp11_lcos.csv, results/exp11_sensitivity.csv
+  Formula: LCOS = (CAPEX*CRF + OPEX) / (Annual_kWh * (1-parasitic))
+    where CRF = (WACC*(1+WACC)^years) / ((1+WACC)^years - 1)
+    E_year = cycles * 10h * power_kW
+  Watch-outs: All costs in real dollars; cycle-consistent parasitics
+
+EXP-12: Site Screening (IHFC Heat Flow Overlay)
+  Goal: Overlay geothermal gradient data for site selection
+  Acceptance:
+    • Produces results/exp12_site_scores.csv with location scores
+    • Lower heat flow = lower guard-ring duty = better score
+  Outputs: results/exp12_site_scores.csv, results/exp12_site_map.html (optional Plotly map)
+  Data: Download IHFC Global Heat Flow Database CSV from heatflow.world
+  Key: score = (max_heatflow - site_heatflow) / max_heatflow
+  Watch-outs: Cache data; some tiles sparse offshore—interpolate with care
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL HYPOTHESES VALIDATED BY THESE EXPERIMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+H1 - Wall-temperature clamping (Exp-03): Guard-ring ≤0.20 MW, ±2°C
+H2 - Pressure equalization (Exp-05): ΔP ≤ ±5 bar, 10K/4h
+H3 - Cavern integrity (Exp-03,05,09): Low-temp operation safe
+H4 - Hot-store hydraulics (Exp-02): ≤0.2 bar ΔP/tower
+H5 - Brayton integration (Exp-07,08): RTE 65-72%
+H6 - Materials compatibility (Literature review + corrosion analysis)
+H7 - Multi-use operation (Exp-09 extension with cooling loads)
+H8 - LCOS sensitivity (Exp-11): $0.04-0.06/kWh-e
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REQUIRED DELIVERABLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. COMPUTATIONAL MODELS & SCRIPTS:
+   - All 12 experiment scripts (experiments/01_*.py to experiments/12_*.py)
+   - src/csutils/common.py with helper functions (logging, CSV save, Acceptance class)
+   - pyproject.toml with all dependencies listed
+   - requirements.txt (generated from pyproject.toml)
+
+2. SIMULATION RESULTS:
+   - All results/*.csv files generated by experiments (exp01 through exp12)
+   - Plots/figures embedded in RESULTS.md (use Plotly for offline HTML plots)
+   - Each CSV must have deterministic content for reproducibility
+
+3. COMPREHENSIVE RESULTS.md:
+   For each experiment (Exp-01 to Exp-12):
+   - Goal statement
+   - Acceptance Criteria with PASS/FAIL status and evidence
+   - Key findings with data references (link to specific CSV files)
+   - Visualizations (embed Plotly HTML plots or PNG images)
+   - Interpretation and implications
+   
+   Overall Analysis:
+   - Summary table of all hypothesis validations (H1-H8) with evidence from experiments
+   - Discussion of technical unknowns requiring further validation work
+   - Sensitivity analysis results (from Exp-10) showing top parameter drivers
+   - Economic feasibility conclusions (from Exp-11)
+   - Site selection recommendations (from Exp-12)
+   - Conclusions addressing feasibility, risks, and recommended next steps
+   - Limitations of the computational analysis
+   - Recommended validation work (Stage A/B demos, full-scale testing)
+
+4. UPDATED README.md:
+   - High-level overview of CavernStack system
+   - Summary of 12-experiment computational verification suite
+   - How to reproduce all experiments (installation, running scripts)
+   - Key findings and feasibility assessment
+   - Links to detailed results
+
+5. VISUALIZATION REQUIREMENTS:
+   - Property grid heatmaps (Exp-01: density, cp, mu, k vs T,P)
+   - Packed bed pressure drop curves (Exp-02: ΔP vs flow rate, particle size)
+   - Guard-ring temperature contours (Exp-03: 2D thermal field)
+   - Coaxial string UA curves (Exp-04: UA vs flow rate)
+   - Buffer equalization time series (Exp-05: P1, P2, ΔP vs time)
+   - Line sizing nomogram (Exp-06: D vs flow rate, velocity)
+   - Cycle T-s diagram or Sankey (Exp-07: energy flows)
+   - PCHE performance map (Exp-08: UA vs ΔP trade curve)
+   - Plant transient profiles (Exp-09: Power, T_wall, ΔP vs time)
+   - Sobol sensitivity charts (Exp-10: S1 indices bar chart)
+   - LCOS sensitivity tornado (Exp-11: impact of each parameter)
+   - Site screening map (Exp-12: heat flow overlay with scores)
+
+6. ACCEPTANCE CHECKLIST:
+   - [ ] All 12 experiments produce expected CSV outputs
+   - [ ] All acceptance criteria logged with PASS/FAIL
+   - [ ] No NaN/Inf values in any results
+   - [ ] Mass/energy conservation checks pass
+   - [ ] All hypotheses (H1-H8) addressed with quantitative evidence
+   - [ ] Visualizations clearly support conclusions
+   - [ ] Code is reproducible (deterministic seeds, documented dependencies)
+   - [ ] RESULTS.md provides deal-room-ready engineering summary
+
+EXECUTION NOTES:
+- Run experiments in order 01→12 (dependencies exist)
+- Each experiment should take 5-30 minutes to complete
+- Log all acceptance checks to console and RESULTS.md
+- Use Plotly for interactive plots (save as offline HTML)
+- Comment code with references to equations, standards, papers
+- Include units in all variable names and CSV column headers
+- Generate a final summary comparing all 8 hypotheses against experimental evidence
+
+This is an ENGINEERING/PHYSICS validation task, not machine learning. Focus on thermodynamics, fluid mechanics, heat transfer, materials science, and economic modeling.
+",
+

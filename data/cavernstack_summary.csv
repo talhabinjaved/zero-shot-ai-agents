@@ -1,0 +1,117 @@
+title,has_experiments,idea,experiments
+CavernStack PTES Executive Summary,False,"COMPREHENSIVE ENGINEERING FEASIBILITY STUDY for CavernStack™ PTES system.
+
+CONTEXT: CavernStack is a Pumped Thermal Energy Storage system using a cold salt cavern (5-25°C) with topside hot storage (500-600°C) and a buffer cavern for pressure stabilization. Power conversion uses closed sCO₂ Brayton cycle (20-25 MPa).
+
+TARGET SYSTEM SPECS:
+- 50 MWe × 10 hours storage
+- Hot store: 3 towers (10m Ø × 32m H) with ~11 kt ceramic media
+- Cold cavern: Operating at ≤25°C with perimeter guard-ring
+- Buffer cavern: Maintains ±5 bar during thermal ramps
+- Target LCOS: ~$0.049/kWh (DOE Storage Shot: $0.05/kWh)
+
+REQUIRED DELIVERABLES:
+1. SYSTEM ARCHITECTURE ANALYSIS:
+   - Detailed breakdown of HTM (Hot-Tower Module), CCM (Cavern-Cold Module), BCM (Buffer-Cavern Module), Power Block
+   - Justification for architecture choices (e.g., cold-in-salt vs hot-in-salt)
+   - Component specifications and design rationale
+
+2. SAFETY CASE & PERMITTING ANALYSIS:
+   - Explain why the design is robust (no hot-in-salt, guard-ring wall clamp, buffer equalization)
+   - Map to API RP 1170, ASME BPVC, PHMSA compliance requirements
+   - Regulatory pathway and permitting strategy
+
+3. HYPOTHESIS VALIDATION (H1-H8):
+   For each hypothesis below, provide a PASS/FAIL assessment with qualitative and quantitative evidence based on literature review, engineering calculations, and feasibility analysis:
+   
+   H1: Wall-temperature clamping works at scale (±2°C, ≤0.20 MW duty)
+   - Guard-ring can hold cavern wall within ±2°C of 15°C setpoint
+   - Guard-ring duty ≤0.20 MW with ≥20% headroom
+   
+   H2: Pressure equalization achieves ±5 bar with stable dynamics (3-4h ramps, ~300 kg/s)
+   - Dual 18-24″ conduits maintain ΔP ≤ ±5 bar during 10K swings over 3-4h
+   - No governor chatter or oscillations
+   
+   H3: Cavern wall integrity under thermal cycling (negligible damage at 5-25°C)
+   - Thermal-mechanical damage accumulation negligible over 10-20 year service
+   - Safety factors ≥1.5 against tensile failure
+   
+   H4: Hot-store hydraulics and attrition (≤0.1-0.2 bar ΔP/tower)
+   - 3-tower bed configuration stays ≤0.2 bar ΔP/tower at nameplate
+   - <20% ΔP growth after 500 cycles
+   
+   H5: Brayton integration and recuperators (RTE 65-72%)
+   - Commercial PCHEs achieve required effectiveness/ΔP at 20-25 MPa
+   - Turbomachinery performance sustains RTE 65-72%
+   
+   H6: Materials compatibility and corrosion control (<1 mpy loss/y)
+   - CO₂ loop materials (316L/Inconel/duplex) within corrosion allowances
+   - Downhole metallurgy compatible with brine presence
+   
+   H7: Multi-use operation (cooling + storage) without safety erosion
+   - External chilled-fluid loads don't disturb ΔP/ΔT limits or guard-ring control
+   
+   H8: LCOS sensitivity stays inside Storage-Shot envelope ($0.04-$0.06/kWh-e)
+   - Ranges for capex ($650-850/kWe), cycles (200-365/y), RTE (0.65-0.72) keep LCOS in DOE target
+
+4. IMPLEMENTATION ROADMAP:
+   - Stage A: Guard-ring + cold-cavern demo (hardware, tests, acceptance criteria)
+   - Stage B: Buffer equalization test (hardware, tests, acceptance criteria)
+   - Stage C: Full 50 MWe × 10h FOAK spine (commissioning KPIs)
+   - Go/no-go gates between stages
+
+5. ECONOMIC ANALYSIS:
+   - LCOS calculation: (CAPEX×CRF + OPEX) / (Annual_kWh × (1-parasitic))
+   - Base case: $750/kWe, 0.70 RTE, 300 cycles/yr, 2% parasitic → ~$0.049/kWh-e
+   - Sensitivity to capex, cycles, RTE
+   - Stacked cooling revenue potential
+
+6. SITE SELECTION & PERMITTING CHECKLIST:
+   - Geological requirements (thick competent halite, favorable depth, low impurity)
+   - Regulatory pathway (API RP 1170, PHMSA adoption of 1170/1171)
+   - Grid & thermal off-take considerations
+   - Brownfield vs greenfield site selection
+
+7. RISK REGISTER (Top 10):
+   - Identify top 10 technical/operational risks
+   - Mitigation strategies for each
+   - Examples: uneven wall-T distribution, governor chatter, thermal spalling, media attrition, sCO₂ HX fouling, CO₂ corrosion, water-hammer, permitting delays, supply chain (PCHEs/turbomachinery), extreme ambient thermal loads
+
+8. MANUFACTURING & SUPPLY CHAIN PLAN:
+   - Long-lead items: PCHE recuperators, sCO₂ turbomachinery, packed-bed towers, ceramic media, downhole strings, guard-ring segments, governors/relief devices
+   - Fabrication & QA/QC requirements
+   - Modularization strategy for parallel factory FAT
+
+9. CONTROLS, SENSING & PROTECTION:
+   - Hard interlocks (wall-T over-limit, ΔP beyond ±5 bar)
+   - Sensor types and locations (downhole thermocouples, wall T grid, cavern bulk P/T, ΔP taps, corrosion coupons)
+   - PLC scope (plant-level only, mechanical-first fail-safe per API 1170)
+
+TECHNICAL GROUNDING:
+Your analysis should cite and reference:
+- Halite geomechanics (creep rates, thermal conductivity, damage susceptibility vs temperature)
+- Solution-mined salt cavern practices (API RP 1170, PHMSA regulations)
+- sCO₂ PTES literature (RTE targets, PCHE recuperators, cycle efficiency)
+- Packed-bed thermal storage (Ergun equation for pressure drop)
+- Downhole heat exchanger practice (geothermal DHE/CPGE literature)
+- Chilled gas cavern thermal control (heat leak management)
+- Rapid depressurization effects (thermal-mechanical stress, spalling risks)
+
+OUTPUT FORMAT:
+Your final RESULTS.md should be a comprehensive feasibility report structured as:
+- Executive Summary (2-3 paragraphs)
+- System Architecture (detailed section for each: HTM, CCM, BCM, Power Block)
+- Safety Case & Compliance Pathway
+- Hypothesis Validation (H1-H8 with PASS/FAIL and evidence)
+- Implementation Roadmap (Stages A/B/C with timelines and gates)
+- Economic Analysis (LCOS calculation, sensitivity charts, revenue stacking)
+- Site Selection Criteria
+- Risk Register with Mitigations
+- Manufacturing & Supply Chain
+- Controls & Protection Philosophy
+- Conclusions & Recommendations
+- Next Steps (immediate actions for de-risking)
+
+Include relevant calculations, charts, and tables. Reference authoritative sources (API standards, NREL studies, academic papers on sCO₂ and salt cavern storage).
+",
+

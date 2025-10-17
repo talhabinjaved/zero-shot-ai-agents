@@ -329,9 +329,14 @@ class OpenHandsOrchestrator:
             counter += 1
 
         try:
+            # Sanitize description: remove control characters and newlines
+            raw_description = idea.idea[:140]
+            # Remove control characters and compress whitespace
+            sanitized_description = ' '.join(raw_description.split())[:140]
+            
             repo_info = self.github.create_repo(
                 repo_name,
-                description=idea.idea[:140],  # GitHub description limit
+                description=sanitized_description,
                 private=True
             )
 
@@ -341,16 +346,24 @@ class OpenHandsOrchestrator:
             return repo_info['full_name'], default_branch
 
         except requests.HTTPError as e:
-            if e.response.status_code == 422:  # Repository already exists
-                logger.warning(f"Repository {self.config.owner}/{repo_name} already exists, using existing")
+            if e.response.status_code == 422:  # Repository might already exist or validation error
                 full_name = f"{self.config.owner}/{repo_name}"
                 
-                # Get the existing repo's default branch
-                existing_repo_info = self.github.get_repo(full_name)
-                default_branch = existing_repo_info['default_branch']
-                logger.info(f"Existing repository default branch: {default_branch}")
-                
-                return full_name, default_branch
+                # Try to verify the repo actually exists (422 can mean other validation errors)
+                try:
+                    existing_repo_info = self.github.get_repo(full_name)
+                    default_branch = existing_repo_info['default_branch']
+                    logger.warning(f"Repository {full_name} already exists, using existing")
+                    logger.info(f"Existing repository default branch: {default_branch}")
+                    return full_name, default_branch
+                except requests.HTTPError as fetch_error:
+                    if fetch_error.response.status_code == 404:
+                        # Repo doesn't exist - 422 error was from something else
+                        logger.error(f"Repository creation failed with 422, but repo doesn't exist at {full_name}")
+                        logger.error(f"Original 422 error response: {e.response.text[:200]}")
+                        raise e  # Re-raise the original 422 error
+                    else:
+                        raise fetch_error
             else:
                 raise
 
